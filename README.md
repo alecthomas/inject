@@ -20,6 +20,8 @@ As well as recursive provider functions:
 ```go
 type MongoURI string
 
+injector.Bind(MongoURI("mongodb://db1.example.net,db2.example.net:2500/?replicaSet=test&connectTimeoutMS=300000"))
+
 injector.Bind(func(uri MongoURI) *mgo.Database {
 	s, err := mgo.Dial(string(uri))
 	if err != nil {
@@ -47,7 +49,8 @@ Mapping bindings are supported:
 
 ```go
 injector.Bind(Mapping("one", 1))
-injector.Bind(Mapping("two", 1))
+injector.Bind(Mapping("two", 2))
+injector.Bind(Mapping("three", func() int { return 3 }))
 injector.Call(func(m map[string]int) {
 	// ...
 })
@@ -58,6 +61,7 @@ As are sequences:
 ```go
 injector.Bind(Sequence(1))
 injector.Bind(Sequence(2))
+injector.Bind(Sequence(func() int { return 3 }))
 injector.Call(func(s []int) {
 	// ...
 })

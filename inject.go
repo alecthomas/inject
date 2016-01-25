@@ -65,11 +65,15 @@ import (
 	"sync"
 )
 
+var errorType = reflect.TypeOf((*error)(nil)).Elem()
+
+type BuilderFunc func() (interface{}, error)
+
 // An Annotation modifies how a type is built and retrieved from the Injector.
 type Annotation interface {
 	// Build returns the type associated with the value being bound, and a function that builds that
 	// value at runtime.
-	Build(*Injector) (reflect.Type, func() interface{})
+	Build(*Injector) (reflect.Type, BuilderFunc, error)
 }
 
 // Annotate ensures that v is an annotation, and returns it.
@@ -102,8 +106,8 @@ func (l *literalAnnotation) String() string {
 	return fmt.Sprintf("%v", l.v)
 }
 
-func (l *literalAnnotation) Build(*Injector) (reflect.Type, func() interface{}) {
-	return reflect.TypeOf(l.v), func() interface{} { return l.v }
+func (l *literalAnnotation) Build(*Injector) (reflect.Type, BuilderFunc, error) {
+	return reflect.TypeOf(l.v), func() (interface{}, error) { return l.v, nil }, nil
 }
 
 type providerType struct {
@@ -116,19 +120,38 @@ func Provider(v interface{}) Annotation {
 	return &providerType{v}
 }
 
-func (p *providerType) Build(i *Injector) (reflect.Type, func() interface{}) {
+func (p *providerType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 	f := reflect.ValueOf(p.v)
 	ft := f.Type()
 	if ft.Kind() != reflect.Func {
-		panic("provider must be a function")
-	}
-	if ft.NumOut() != 1 {
-		panic("provider must return exactly one value")
+		return nil, nil, fmt.Errorf("provider must be a function returning (<type>[, <error>])")
 	}
 	rt := ft.Out(0)
-	return rt, func() interface{} {
-		return i.Call(p.v)[0].Interface()
+	switch ft.NumOut() {
+	case 1:
+		if rt == errorType {
+			return nil, nil, fmt.Errorf("provider must return (<type>[, <error>])")
+		}
+		return rt, func() (interface{}, error) {
+			rv, err := i.Call(p.v)
+			if err != nil {
+				return nil, err
+			}
+			return rv[0].Interface(), nil
+		}, nil
+	case 2:
+		if ft.Out(1) != errorType {
+			return nil, nil, fmt.Errorf("provider must return (<type>[, <error>])")
+		}
+		return rt, func() (interface{}, error) {
+			rv, err := i.Call(p.v)
+			if err != nil {
+				return nil, err
+			}
+			return rv[0].Interface(), rv[1].Interface().(error)
+		}, nil
 	}
+	return nil, nil, fmt.Errorf("provider must return (<type>[, <error>])")
 }
 
 // Singleton annotates a provider function to indicate that the provider will only be called once,
@@ -151,24 +174,28 @@ type singletonType struct {
 	v interface{}
 }
 
-func (s *singletonType) Build(i *Injector) (reflect.Type, func() interface{}) {
+func (s *singletonType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 	next := Annotate(s.v)
 	if _, ok := next.(*providerType); !ok {
-		panic("only providers can be singletons")
+		return nil, nil, fmt.Errorf("only providers can be singletons")
 	}
-	typ, builder := next.Build(i)
+	typ, builder, err := next.Build(i)
+	if err != nil {
+		return nil, nil, err
+	}
 	lock := sync.Mutex{}
 	isCached := false
 	var cached interface{}
-	return typ, func() interface{} {
+	return typ, func() (interface{}, error) {
 		lock.Lock()
 		defer lock.Unlock()
+		var err error
 		if !isCached {
-			cached = builder()
+			cached, err = builder()
 			isCached = true
 		}
-		return cached
-	}
+		return cached, err
+	}, nil
 }
 
 // Sequence annotates a provider or binding to indicate it is part of a slice of values implementing
@@ -189,18 +216,29 @@ type sequenceType struct {
 	v interface{}
 }
 
-func (s *sequenceType) Build(i *Injector) (reflect.Type, func() interface{}) {
-	t, builder := Annotate(s.v).Build(i)
+func (s *sequenceType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
+	t, builder, err := Annotate(s.v).Build(i)
+	if err != nil {
+		return nil, nil, err
+	}
 	sliceType := reflect.SliceOf(t)
 	next, ok := i.Bindings[sliceType]
-	return sliceType, func() interface{} {
+	return sliceType, func() (interface{}, error) {
 		out := reflect.MakeSlice(sliceType, 0, 0)
 		if ok {
-			out = reflect.AppendSlice(out, reflect.ValueOf(next()))
+			v, err := next()
+			if err != nil {
+				return nil, err
+			}
+			out = reflect.AppendSlice(out, reflect.ValueOf(v))
 		}
-		out = reflect.Append(out, reflect.ValueOf(builder()))
-		return out.Interface()
-	}
+		v, err := builder()
+		if err != nil {
+			return nil, err
+		}
+		out = reflect.Append(out, reflect.ValueOf(v))
+		return out.Interface(), nil
+	}, nil
 }
 
 type mappingType struct {
@@ -221,27 +259,38 @@ func Mapping(k, v interface{}) Annotation {
 	return &mappingType{k, v}
 }
 
-func (m *mappingType) Build(i *Injector) (reflect.Type, func() interface{}) {
-	t, builder := Annotate(m.v).Build(i)
+func (m *mappingType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
+	t, builder, err := Annotate(m.v).Build(i)
+	if err != nil {
+		return nil, nil, err
+	}
 	kv := reflect.ValueOf(m.k)
 	mapType := reflect.MapOf(reflect.TypeOf(m.k), t)
 	next, ok := i.Bindings[mapType]
-	return mapType, func() interface{} {
+	return mapType, func() (interface{}, error) {
 		var out reflect.Value
 		if ok {
-			out = reflect.ValueOf(next())
+			v, err := next()
+			if err != nil {
+				return nil, err
+			}
+			out = reflect.ValueOf(v)
 		} else {
 			out = reflect.MakeMap(mapType)
 		}
-		out.SetMapIndex(kv, reflect.ValueOf(builder()))
-		return out.Interface()
-	}
+		v, err := builder()
+		if err != nil {
+			return nil, err
+		}
+		out.SetMapIndex(kv, reflect.ValueOf(v))
+		return out.Interface(), nil
+	}, nil
 }
 
 // Injector is a IoC container.
 type Injector struct {
 	Parent   *Injector
-	Bindings map[reflect.Type]func() interface{}
+	Bindings map[reflect.Type]BuilderFunc
 }
 
 // New creates a new Injector.
@@ -249,16 +298,27 @@ type Injector struct {
 // The injector itself is already bound.
 func New() *Injector {
 	i := &Injector{
-		Bindings: map[reflect.Type]func() interface{}{},
+		Bindings: map[reflect.Type]BuilderFunc{},
 	}
 	i.Bind(i)
 	return i
 }
 
 // Bind a value to the injector.
-func (i *Injector) Bind(v interface{}) {
-	typ, provider := Annotate(v).Build(i)
+func (i *Injector) Bind(v interface{}) error {
+	typ, provider, err := Annotate(v).Build(i)
+	if err != nil {
+		return err
+	}
 	i.Bindings[typ] = provider
+	return nil
+}
+
+// MustBind is like Bind except any errors will cause a panic.
+func (i *Injector) MustBind(v interface{}) {
+	if err := i.Bind(v); err != nil {
+		panic(err)
+	}
 }
 
 // BindTo binds an interface to a value.
@@ -267,37 +327,60 @@ func (i *Injector) Bind(v interface{}) {
 //
 //		i.BindTo((*fmt.Stringer)(nil), impl)
 //
-func (i *Injector) BindTo(iface interface{}, impl interface{}) {
+func (i *Injector) BindTo(iface interface{}, impl interface{}) error {
 	ift := reflect.TypeOf(iface).Elem()
-	implt, builder := Annotate(impl).Build(i)
+	implt, builder, err := Annotate(impl).Build(i)
+	if err != nil {
+		return err
+	}
 	if !implt.Implements(ift) {
-		panic("implementation does not implement interface")
+		return fmt.Errorf("implementation %s does not implement interface %s", implt, ift)
 	}
 	i.Bindings[ift] = builder
+	return nil
+}
+
+// MustBindTo is like BindTo except any errors will cause a panic.
+func (i *Injector) MustBindTo(iface interface{}, impl interface{}) {
+	if err := i.BindTo(iface, impl); err != nil {
+		panic(err)
+	}
 }
 
 // Get acquires a value of type t from the injector.
 //
 // This should generally only be used for testing.
-func (i *Injector) Get(t reflect.Type) interface{} {
+func (i *Injector) Get(t reflect.Type) (interface{}, error) {
 	if f, ok := i.Bindings[t]; ok {
 		return f()
 	}
 	if i.Parent != nil {
 		return i.Parent.Get(t)
 	}
-	panic("unbound type " + t.String())
+	return nil, fmt.Errorf("unbound type %s", t.String())
+}
+
+// MustGet is like Get except any errors will cause a panic.
+func (i *Injector) MustGet(t reflect.Type) interface{} {
+	v, err := i.Get(t)
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
 
 // Call f, injecting any arguments.
-func (i *Injector) Call(f interface{}) []reflect.Value {
+func (i *Injector) Call(f interface{}) ([]reflect.Value, error) {
 	ft := reflect.TypeOf(f)
 	args := []reflect.Value{}
 	for ai := 0; ai < ft.NumIn(); ai++ {
-		a := i.Get(ft.In(ai))
+		a, err := i.Get(ft.In(ai))
+		if err != nil {
+			return nil, fmt.Errorf("couldn't inject argument %d of %s: %s", ai, ft, err)
+		}
 		args = append(args, reflect.ValueOf(a))
 	}
-	return reflect.ValueOf(f).Call(args)
+	return reflect.ValueOf(f).Call(args), nil
 }
 
 // Child creates a child Injector whose bindings overlay those of the parent.
