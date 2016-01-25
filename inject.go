@@ -148,7 +148,10 @@ func (p *providerType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 			if err != nil {
 				return nil, err
 			}
-			return rv[0].Interface(), rv[1].Interface().(error)
+			if !rv[1].IsNil() {
+				return nil, rv[1].Interface().(error)
+			}
+			return rv[0].Interface(), nil
 		}, nil
 	}
 	return nil, nil, fmt.Errorf("provider must return (<type>[, <error>])")
