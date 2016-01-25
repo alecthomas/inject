@@ -326,20 +326,38 @@ func (i *Injector) MustBind(v interface{}) {
 
 // BindTo binds an interface to a value.
 //
-// "iface" must be a nil pointer to the required interface. eg.
+// "as" should either be a nil pointer to the required interface:
 //
 //		i.BindTo((*fmt.Stringer)(nil), impl)
 //
-func (i *Injector) BindTo(iface interface{}, impl interface{}) error {
-	ift := reflect.TypeOf(iface).Elem()
+// Or a type to convert to:
+//
+// 		i.BindTo(int64(0), 10)
+//
+func (i *Injector) BindTo(as interface{}, impl interface{}) error {
+	ift := reflect.TypeOf(as)
 	implt, builder, err := Annotate(impl).Build(i)
 	if err != nil {
 		return err
 	}
-	if !implt.Implements(ift) {
-		return fmt.Errorf("implementation %s does not implement interface %s", implt, ift)
+	// Pointer to an interface...
+	if ift.Kind() == reflect.Ptr && ift.Elem().Kind() == reflect.Interface {
+		ift = ift.Elem()
+		if !implt.Implements(ift) {
+			return fmt.Errorf("implementation %s does not implement interface %s", implt, ift)
+		}
+		i.Bindings[ift] = builder
+	} else if implt.ConvertibleTo(ift) {
+		i.Bindings[ift] = func() (interface{}, error) {
+			v, err := builder()
+			if err != nil {
+				return nil, err
+			}
+			return reflect.ValueOf(v).Convert(ift).Interface(), nil
+		}
+	} else {
+		return fmt.Errorf("implementation %s can not be converted to %s", implt, ift)
 	}
-	i.Bindings[ift] = builder
 	return nil
 }
 

@@ -29,6 +29,16 @@ func TestInjectorBindTo(t *testing.T) {
 	require.Equal(t, "hello", ss.String())
 }
 
+func TestInjectorBindToTypeAlias(t *testing.T) {
+	i := New()
+	i.MustBindTo(stringer(""), "hello")
+	v := i.MustGet(reflect.TypeOf(stringer(""))).(stringer)
+	require.Equal(t, stringer("hello"), v)
+	i.MustBindTo(int64(0), 10)
+	w := i.MustGet(reflect.TypeOf(int64(0)))
+	require.Equal(t, int64(10), w)
+}
+
 func TestInjectorBindToInvalidImplementation(t *testing.T) {
 	i := New()
 	s := "hello"
