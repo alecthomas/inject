@@ -164,14 +164,26 @@ func TestLiteral(t *testing.T) {
 	require.Equal(t, "hello world", buf.String())
 }
 
-type Username string
+type UserName string
 
 func TestPseudoBoundValues(t *testing.T) {
 	i := New()
-	i.MustBind(Username("bob"))
+	i.MustBind(UserName("bob"))
 	name := ""
-	i.Call(func(user Username) {
+	i.Call(func(user UserName) {
 		name = string(user)
 	})
 	require.Equal(t, "bob", name)
+}
+
+type myModule struct{}
+
+func (m *myModule) ProvideString(i int) string { return fmt.Sprintf("hello:%d", i) }
+
+func TestModule(t *testing.T) {
+	i := New()
+	i.Bind(123)
+	i.Install(&myModule{})
+	actual := i.MustGet(reflect.TypeOf("")).(string)
+	require.Equal(t, "hello:123", actual)
 }

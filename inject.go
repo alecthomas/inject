@@ -307,6 +307,19 @@ func New() *Injector {
 	return i
 }
 
+// Install a module. A module is a struct whose methods are providers. This is useful for grouping
+// configuration data together with providers.
+func (i *Injector) Install(module interface{}) error {
+	m := reflect.ValueOf(module)
+	for j := 0; j < m.NumMethod(); j++ {
+		method := m.Method(j).Interface()
+		if err := i.Bind(Provider(method)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Bind a value to the injector.
 func (i *Injector) Bind(v interface{}) error {
 	typ, provider, err := Annotate(v).Build(i)
@@ -402,6 +415,14 @@ func (i *Injector) Call(f interface{}) ([]reflect.Value, error) {
 		args = append(args, reflect.ValueOf(a))
 	}
 	return reflect.ValueOf(f).Call(args), nil
+}
+
+func (i *Injector) MustCall(f interface{}) []reflect.Value {
+	r, err := i.Call(f)
+	if err != nil {
+		panic(err)
+	}
+	return r
 }
 
 // Child creates a child Injector whose bindings overlay those of the parent.
