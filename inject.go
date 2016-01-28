@@ -311,7 +311,18 @@ func New() *Injector {
 // Install a module. A module is a struct whose methods are providers. This is useful for grouping
 // configuration data together with providers.
 //
-// Any method starting with "Provide" will be bound.
+// Any method starting with "Provide" will be bound as a Provider. If the method name contains
+// "Multi" it will not be a singleton provider. If the method name contains "Sequence" it will
+// contribute to a sequence of its return type.
+//
+// For example, the following method will be called only once:
+//
+// 		ProvideLog() *log.Logger { return log.New(...) }
+//
+// While this method will be called each time a *log.Logger is injected.
+//
+// 		ProvideMultiLog() *log.Logger { return log.New(...) }
+//
 func (i *Injector) Install(module interface{}) error {
 	m := reflect.ValueOf(module)
 	if reflect.Indirect(m).Kind() != reflect.Struct {
@@ -322,7 +333,14 @@ func (i *Injector) Install(module interface{}) error {
 		method := m.Method(j)
 		methodType := mt.Method(j)
 		if strings.HasPrefix(methodType.Name, "Provide") {
-			if err := i.Bind(Provider(method.Interface())); err != nil {
+			provider := Provider(method.Interface())
+			if !strings.Contains(methodType.Name, "Multi") {
+				provider = Singleton(provider)
+			}
+			if strings.Contains(methodType.Name, "Sequence") {
+				provider = Sequence(provider)
+			}
+			if err := i.Bind(provider); err != nil {
 				return err
 			}
 		}
@@ -427,7 +445,7 @@ func (i *Injector) Call(f interface{}) ([]interface{}, error) {
 	for ai := 0; ai < ft.NumIn(); ai++ {
 		a, err := i.Get(ft.In(ai))
 		if err != nil {
-			return nil, fmt.Errorf("couldn't inject argument %d of %s: %s", ai, ft, err)
+			return nil, fmt.Errorf("couldn't inject argument %d of %s: %s", ai+1, ft, err)
 		}
 		args = append(args, reflect.ValueOf(a))
 	}
