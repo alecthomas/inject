@@ -182,8 +182,17 @@ func (m *myModule) ProvideString(i int) string { return fmt.Sprintf("hello:%d", 
 
 func TestModule(t *testing.T) {
 	i := New()
-	i.Bind(123)
-	i.Install(&myModule{})
+	i.MustBind(123)
+	i.MustInstall(&myModule{})
 	actual := i.MustGet(reflect.TypeOf("")).(string)
 	require.Equal(t, "hello:123", actual)
+}
+
+func TestCallError(t *testing.T) {
+	f := func() error {
+		return fmt.Errorf("failed")
+	}
+	i := New()
+	_, err := i.Call(f)
+	require.Error(t, err)
 }

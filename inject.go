@@ -62,6 +62,7 @@ package inject
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"sync"
 )
 
@@ -137,7 +138,7 @@ func (p *providerType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 			if err != nil {
 				return nil, err
 			}
-			return rv[0].Interface(), nil
+			return rv[0], nil
 		}, nil
 	case 2:
 		if ft.Out(1) != errorType {
@@ -148,10 +149,10 @@ func (p *providerType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 			if err != nil {
 				return nil, err
 			}
-			if !rv[1].IsNil() {
-				return nil, rv[1].Interface().(error)
+			if rv[1] != nil {
+				return nil, rv[1].(error)
 			}
-			return rv[0].Interface(), nil
+			return rv[0], nil
 		}, nil
 	}
 	return nil, nil, fmt.Errorf("provider must return (<type>[, <error>])")
@@ -309,15 +310,31 @@ func New() *Injector {
 
 // Install a module. A module is a struct whose methods are providers. This is useful for grouping
 // configuration data together with providers.
+//
+// Any method starting with "Provide" will be bound.
 func (i *Injector) Install(module interface{}) error {
 	m := reflect.ValueOf(module)
+	if reflect.Indirect(m).Kind() != reflect.Struct {
+		return fmt.Errorf("only structs may be used as modules but got %s", m.Type())
+	}
+	mt := m.Type()
 	for j := 0; j < m.NumMethod(); j++ {
-		method := m.Method(j).Interface()
-		if err := i.Bind(Provider(method)); err != nil {
-			return err
+		method := m.Method(j)
+		methodType := mt.Method(j)
+		if strings.HasPrefix(methodType.Name, "Provide") {
+			if err := i.Bind(Provider(method.Interface())); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
+}
+
+func (i *Injector) MustInstall(module interface{}) {
+	err := i.Install(module)
+	if err != nil {
+		panic(err)
+	}
 }
 
 // Bind a value to the injector.
@@ -404,7 +421,7 @@ func (i *Injector) MustGet(t reflect.Type) interface{} {
 }
 
 // Call f, injecting any arguments.
-func (i *Injector) Call(f interface{}) ([]reflect.Value, error) {
+func (i *Injector) Call(f interface{}) ([]interface{}, error) {
 	ft := reflect.TypeOf(f)
 	args := []reflect.Value{}
 	for ai := 0; ai < ft.NumIn(); ai++ {
@@ -414,10 +431,19 @@ func (i *Injector) Call(f interface{}) ([]reflect.Value, error) {
 		}
 		args = append(args, reflect.ValueOf(a))
 	}
-	return reflect.ValueOf(f).Call(args), nil
+	returns := reflect.ValueOf(f).Call(args)
+	last := len(returns) - 1
+	if len(returns) > 0 && returns[last].Type() == errorType && !returns[last].IsNil() {
+		return nil, returns[last].Interface().(error)
+	}
+	out := []interface{}{}
+	for _, r := range returns {
+		out = append(out, r.Interface())
+	}
+	return out, nil
 }
 
-func (i *Injector) MustCall(f interface{}) []reflect.Value {
+func (i *Injector) MustCall(f interface{}) []interface{} {
 	r, err := i.Call(f)
 	if err != nil {
 		panic(err)
