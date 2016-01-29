@@ -334,11 +334,10 @@ func (i *Injector) Install(module interface{}) error {
 		methodType := mt.Method(j)
 		if strings.HasPrefix(methodType.Name, "Provide") {
 			provider := Provider(method.Interface())
-			if !strings.Contains(methodType.Name, "Multi") {
-				provider = Singleton(provider)
-			}
 			if strings.Contains(methodType.Name, "Sequence") {
 				provider = Sequence(provider)
+			} else if !strings.Contains(methodType.Name, "Multi") {
+				provider = Singleton(provider)
 			}
 			if err := i.Bind(provider); err != nil {
 				return err
@@ -425,6 +424,16 @@ func (i *Injector) Get(t reflect.Type) (interface{}, error) {
 	}
 	if i.Parent != nil {
 		return i.Parent.Get(t)
+	}
+	// Special case slices to always return something... this allows sequences to be injected
+	// when they don't have any providers.
+	if t.Kind() == reflect.Slice {
+		return reflect.MakeSlice(t.Elem(), 0, 0), nil
+	}
+	// Special case maps to always return something... this allows mappings to be injected
+	// when they don't have any providers.
+	if t.Kind() == reflect.Map {
+		return reflect.MakeMap(t), nil
 	}
 	return nil, fmt.Errorf("unbound type %s", t.String())
 }
