@@ -428,12 +428,12 @@ func (i *Injector) Get(t reflect.Type) (interface{}, error) {
 	// Special case slices to always return something... this allows sequences to be injected
 	// when they don't have any providers.
 	if t.Kind() == reflect.Slice {
-		return reflect.MakeSlice(t.Elem(), 0, 0), nil
+		return reflect.MakeSlice(t, 0, 0).Interface(), nil
 	}
 	// Special case maps to always return something... this allows mappings to be injected
 	// when they don't have any providers.
 	if t.Kind() == reflect.Map {
-		return reflect.MakeMap(t), nil
+		return reflect.MakeMap(t).Interface(), nil
 	}
 	return nil, fmt.Errorf("unbound type %s", t.String())
 }
