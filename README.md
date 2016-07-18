@@ -22,12 +22,12 @@ type MongoURI string
 
 injector.Bind(MongoURI("mongodb://db1.example.net,db2.example.net:2500/?replicaSet=test&connectTimeoutMS=300000"))
 
-injector.Bind(func(uri MongoURI) *mgo.Database {
+injector.Bind(func(uri MongoURI) (*mgo.Database, error) {
 	s, err := mgo.Dial(string(uri))
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return s.DB("my_db")
+	return s.DB("my_db"), nil
 })
 
 injector.Bind(func(db *mgo.Database) *mgo.Collection {
