@@ -77,3 +77,18 @@ injector.Call(func (username UserName) {
 })
 ```
 
+Similar to injection frameworks in other languages, inject includes the concept of modules. A module is a struct whose methods are providers. This is useful for grouping configuration data together with providers.
+
+Any method starting with "Provide" will be bound as a Provider. If the method name contains "Multi" it will not be a singleton provider. If the method name contains "Sequence" it will contribute to a sequence of its return type.
+
+```go
+type MyModule struct {}
+
+// Singleton provider.
+func (m *MyModule) ProvideLog() *log.Logger { return log.New() }
+
+type Randomness int
+
+// "Multi" provider, called every time an "int" is injected.
+func (m *MyModule) ProvideMultiRandomness() Randomness { return Randomness(rand.Int()) }
+```
