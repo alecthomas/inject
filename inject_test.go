@@ -196,3 +196,61 @@ func TestCallError(t *testing.T) {
 	_, err := i.Call(f)
 	require.Error(t, err)
 }
+
+type notQuiteStringer int
+
+func (n notQuiteStringer) String() string { return fmt.Sprintf("%d", n) }
+
+func TestInterfaceConversion(t *testing.T) {
+	f := func(s fmt.Stringer) error {
+		return nil
+	}
+	i := New()
+	i.MustBind(notQuiteStringer(10))
+	_, err := i.Call(f)
+	require.NoError(t, err)
+}
+
+func TestSliceInterfaceConversion(t *testing.T) {
+	expected := []fmt.Stringer{notQuiteStringer(10), notQuiteStringer(20)}
+	actual := []fmt.Stringer{}
+	f := func(s []fmt.Stringer) error {
+		actual = s
+		return nil
+	}
+	i := New()
+	i.MustBind(Sequence(notQuiteStringer(10)))
+	i.MustBind(Sequence(notQuiteStringer(20)))
+	_, err := i.Call(f)
+	require.NoError(t, err)
+	require.Equal(t, expected, actual)
+}
+
+func TestMapValueInterfaceConversion(t *testing.T) {
+	expected := map[string]fmt.Stringer{"a": notQuiteStringer(10), "b": notQuiteStringer(20)}
+	actual := map[string]fmt.Stringer{}
+	f := func(s map[string]fmt.Stringer) error {
+		actual = s
+		return nil
+	}
+	i := New()
+	i.MustBind(Mapping("a", notQuiteStringer(10)))
+	i.MustBind(Mapping("b", notQuiteStringer(20)))
+	_, err := i.Call(f)
+	require.NoError(t, err)
+	require.Equal(t, expected, actual)
+}
+
+func TestSliceIsNotImplicitlyProvided(t *testing.T) {
+	f := func(s []string) {}
+	i := New()
+	_, err := i.Call(f)
+	require.Error(t, err)
+}
+
+func TestMappingIsNotImplicitlyProvided(t *testing.T) {
+	f := func(s map[string]string) {}
+	i := New()
+	_, err := i.Call(f)
+	require.Error(t, err)
+}

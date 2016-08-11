@@ -422,18 +422,58 @@ func (i *Injector) Get(t reflect.Type) (interface{}, error) {
 	if f, ok := i.Bindings[t]; ok {
 		return f()
 	}
+	// If type is an interface attempt to find type that conforms to the interface.
+	if t.Kind() == reflect.Interface {
+		for bt, f := range i.Bindings {
+			if bt.Implements(t) {
+				return f()
+			}
+		}
+	}
+	// If type is a slice of interfaces, attempt to find providers that provide slices
+	// of types that implement that interface.
+	if t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Interface {
+		et := t.Elem()
+		for bt, f := range i.Bindings {
+			if bt.Kind() == reflect.Slice {
+				if bt.Elem().Implements(et) {
+					fout, err := f()
+					if err != nil {
+						return nil, err
+					}
+					foutv := reflect.ValueOf(fout)
+					out := reflect.MakeSlice(t, 0, 0)
+					for i := 0; i < foutv.Len(); i++ {
+						out = reflect.Append(out, foutv.Index(i))
+					}
+					return out.Interface(), nil
+				}
+			}
+		}
+	}
+	// If type is a map of interface values, attempt to find providers that provide maps of values
+	// that implement that interface. Keys must match.
+	if t.Kind() == reflect.Map && t.Elem().Kind() == reflect.Interface {
+		et := t.Elem()
+		for bt, f := range i.Bindings {
+			if bt.Kind() == reflect.Map && bt.Key() == t.Key() {
+				if bt.Elem().Implements(et) {
+					fout, err := f()
+					if err != nil {
+						return nil, err
+					}
+					foutv := reflect.ValueOf(fout)
+					out := reflect.MakeMap(t)
+					for _, key := range foutv.MapKeys() {
+						out.SetMapIndex(key, foutv.MapIndex(key))
+					}
+					return out.Interface(), nil
+				}
+			}
+		}
+	}
 	if i.Parent != nil {
 		return i.Parent.Get(t)
-	}
-	// Special case slices to always return something... this allows sequences to be injected
-	// when they don't have any providers.
-	if t.Kind() == reflect.Slice {
-		return reflect.MakeSlice(t, 0, 0).Interface(), nil
-	}
-	// Special case maps to always return something... this allows mappings to be injected
-	// when they don't have any providers.
-	if t.Kind() == reflect.Map {
-		return reflect.MakeMap(t).Interface(), nil
 	}
 	return nil, fmt.Errorf("unbound type %s", t.String())
 }
