@@ -291,10 +291,19 @@ func (m *mappingType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 	}, nil
 }
 
+// Config for an Injector.
+type Config struct {
+	// If true, empty sequences will be implicitly provided.
+	ImplicitSequences bool
+	// If true, empty mappings will be implicitly provided.
+	ImplicitMappings bool
+}
+
 // Injector is a IoC container.
 type Injector struct {
 	Parent   *Injector
 	Bindings map[reflect.Type]BuilderFunc
+	Config   Config
 }
 
 // New creates a new Injector.
@@ -305,6 +314,12 @@ func New() *Injector {
 		Bindings: map[reflect.Type]BuilderFunc{},
 	}
 	i.Bind(i)
+	return i
+}
+
+// Configure the injector.
+func (i *Injector) Configure(config Config) *Injector {
+	i.Config = config
 	return i
 }
 
@@ -471,6 +486,17 @@ func (i *Injector) Get(t reflect.Type) (interface{}, error) {
 				}
 			}
 		}
+	}
+
+	// Special case slices to always return something... this allows sequences to be injected
+	// when they don't have any providers.
+	if i.Config.ImplicitSequences && t.Kind() == reflect.Slice {
+		return reflect.MakeSlice(t, 0, 0).Interface(), nil
+	}
+	// Special case maps to always return something... this allows mappings to be injected
+	// when they don't have any providers.
+	if i.Config.ImplicitMappings && t.Kind() == reflect.Map {
+		return reflect.MakeMap(t).Interface(), nil
 	}
 	if i.Parent != nil {
 		return i.Parent.Get(t)
