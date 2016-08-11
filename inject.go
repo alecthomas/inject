@@ -75,6 +75,8 @@ type Annotation interface {
 	// Build returns the type associated with the value being bound, and a function that builds that
 	// value at runtime.
 	Build(*Injector) (reflect.Type, BuilderFunc, error)
+	// Is checks if the annotation or any children are of the given annotation type.
+	Is(annotation Annotation) bool
 }
 
 // Annotate ensures that v is an annotation, and returns it.
@@ -109,6 +111,10 @@ func (l *literalAnnotation) String() string {
 
 func (l *literalAnnotation) Build(*Injector) (reflect.Type, BuilderFunc, error) {
 	return reflect.TypeOf(l.v), func() (interface{}, error) { return l.v, nil }, nil
+}
+
+func (l *literalAnnotation) Is(annotation Annotation) bool {
+	return reflect.TypeOf(annotation) == reflect.TypeOf(&literalAnnotation{})
 }
 
 type providerType struct {
@@ -158,6 +164,10 @@ func (p *providerType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 	return nil, nil, fmt.Errorf("provider must return (<type>[, <error>])")
 }
 
+func (p *providerType) Is(annotation Annotation) bool {
+	return reflect.TypeOf(annotation) == reflect.TypeOf(&providerType{})
+}
+
 // Singleton annotates a provider function to indicate that the provider will only be called once,
 // and that its return value will be used for all subsequent retrievals of the given type.
 //
@@ -180,7 +190,7 @@ type singletonType struct {
 
 func (s *singletonType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 	next := Annotate(s.v)
-	if _, ok := next.(*providerType); !ok {
+	if !next.Is(&providerType{}) {
 		return nil, nil, fmt.Errorf("only providers can be singletons")
 	}
 	typ, builder, err := next.Build(i)
@@ -200,6 +210,11 @@ func (s *singletonType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 		}
 		return cached, err
 	}, nil
+}
+
+func (s *singletonType) Is(annotation Annotation) bool {
+	return reflect.TypeOf(annotation) == reflect.TypeOf(&singletonType{}) ||
+		Annotate(s.v).Is(annotation)
 }
 
 // Sequence annotates a provider or binding to indicate it is part of a slice of values implementing
@@ -243,6 +258,11 @@ func (s *sequenceType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 		out = reflect.Append(out, reflect.ValueOf(v))
 		return out.Interface(), nil
 	}, nil
+}
+
+func (s *sequenceType) Is(annotation Annotation) bool {
+	return reflect.TypeOf(annotation) == reflect.TypeOf(&sequenceType{}) ||
+		Annotate(s.v).Is(annotation)
 }
 
 type mappingType struct {
@@ -289,6 +309,10 @@ func (m *mappingType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 		out.SetMapIndex(kv, reflect.ValueOf(v))
 		return out.Interface(), nil
 	}, nil
+}
+
+func (m *mappingType) Is(annotation Annotation) bool {
+	return reflect.TypeOf(annotation) == reflect.TypeOf(&mappingType{})
 }
 
 // Config for an Injector.
@@ -371,9 +395,14 @@ func (i *Injector) MustInstall(module interface{}) {
 
 // Bind a value to the injector.
 func (i *Injector) Bind(v interface{}) error {
-	typ, provider, err := Annotate(v).Build(i)
+	annotation := Annotate(v)
+	typ, provider, err := annotation.Build(i)
 	if err != nil {
 		return err
+	}
+	if _, ok := i.Bindings[typ]; ok && !(annotation.Is(&sequenceType{}) ||
+		annotation.Is(&mappingType{})) {
+		return fmt.Errorf("%s is already bound", typ)
 	}
 	i.Bindings[typ] = provider
 	return nil
@@ -401,6 +430,9 @@ func (i *Injector) BindTo(as interface{}, impl interface{}) error {
 	implt, builder, err := Annotate(impl).Build(i)
 	if err != nil {
 		return err
+	}
+	if _, ok := i.Bindings[ift]; ok {
+		return fmt.Errorf("%s is already bound", ift)
 	}
 	// Pointer to an interface...
 	if ift.Kind() == reflect.Ptr && ift.Elem().Kind() == reflect.Interface {

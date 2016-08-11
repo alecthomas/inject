@@ -134,7 +134,7 @@ func TestSequenceAnnotation(t *testing.T) {
 	i := New()
 	i.MustBind(Sequence(1))
 	i.MustBind(Sequence(2))
-	i.MustBind(Sequence(func() int { return 3 }))
+	i.MustBind(Sequence(Singleton(func() int { return 3 })))
 	v := i.MustGet(reflect.TypeOf([]int{}))
 	require.Equal(t, []int{1, 2, 3}, v)
 }
@@ -267,4 +267,8 @@ func TestMappingIsImplicitlyProvidedWhenEnabled(t *testing.T) {
 	i := New().Configure(Config{ImplicitMappings: true})
 	_, err := i.Call(f)
 	require.NoError(t, err)
+}
+
+func TestIs(t *testing.T) {
+	require.True(t, Sequence([]int{1, 2}).Is(&sequenceType{}))
 }
