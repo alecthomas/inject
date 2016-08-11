@@ -132,18 +132,18 @@ func TestDynamicInjection(t *testing.T) {
 
 func TestSequenceAnnotation(t *testing.T) {
 	i := New()
-	i.MustBind(Sequence(1))
-	i.MustBind(Sequence(2))
-	i.MustBind(Sequence(Singleton(func() int { return 3 })))
+	i.MustBind(Sequence([]int{1}))
+	i.MustBind(Sequence([]int{2}))
+	i.MustBind(Sequence(Singleton(func() []int { return []int{3} })))
 	v := i.MustGet(reflect.TypeOf([]int{}))
 	require.Equal(t, []int{1, 2, 3}, v)
 }
 
 func TestMappingAnnotation(t *testing.T) {
 	i := New()
-	i.MustBind(Mapping("one", 1))
-	i.MustBind(Mapping("two", 2))
-	i.MustBind(Mapping("three", func() int { return 3 }))
+	i.MustBind(Mapping(map[string]int{"one": 1}))
+	i.MustBind(Mapping(map[string]int{"two": 2}))
+	i.MustBind(Mapping(func() map[string]int { return map[string]int{"three": 3} }))
 	v := i.MustGet(reflect.TypeOf(map[string]int{}))
 	require.Equal(t, map[string]int{"one": 1, "two": 2, "three": 3}, v)
 	called := false
@@ -219,8 +219,8 @@ func TestSliceInterfaceConversion(t *testing.T) {
 		return nil
 	}
 	i := New()
-	i.MustBind(Sequence(notQuiteStringer(10)))
-	i.MustBind(Sequence(notQuiteStringer(20)))
+	i.MustBind(Sequence([]notQuiteStringer{10}))
+	i.MustBind(Sequence([]notQuiteStringer{20}))
 	_, err := i.Call(f)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
@@ -234,8 +234,8 @@ func TestMapValueInterfaceConversion(t *testing.T) {
 		return nil
 	}
 	i := New()
-	i.MustBind(Mapping("a", notQuiteStringer(10)))
-	i.MustBind(Mapping("b", notQuiteStringer(20)))
+	i.MustBind(Mapping(map[string]notQuiteStringer{"a": notQuiteStringer(10)}))
+	i.MustBind(Mapping(map[string]notQuiteStringer{"b": notQuiteStringer(20)}))
 	_, err := i.Call(f)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)

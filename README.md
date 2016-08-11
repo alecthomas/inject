@@ -48,9 +48,9 @@ injector.Bind(Literal(fmt.Sprintf))
 Mapping bindings are supported:
 
 ```go
-injector.Bind(Mapping("one", 1))
-injector.Bind(Mapping("two", 2))
-injector.Bind(Mapping("three", func() int { return 3 }))
+injector.Bind(Mapping(map[string]int{"one": 1}))
+injector.Bind(Mapping(map[string]int{"two": 2}))
+injector.Bind(Mapping(func() map[string]int { return map[string]int{"three": 3 }}))
 injector.Call(func(m map[string]int) {
 	// ...
 })
@@ -59,9 +59,9 @@ injector.Call(func(m map[string]int) {
 As are sequences:
 
 ```go
-injector.Bind(Sequence(1))
-injector.Bind(Sequence(2))
-injector.Bind(Sequence(func() int { return 3 }))
+injector.Bind(Sequence([]int{1}))
+injector.Bind(Sequence([]int{2}))
+injector.Bind(Sequence(func() []int { return []int{3} }))
 injector.Call(func(s []int) {
 	// ...
 })
@@ -77,9 +77,15 @@ injector.Call(func (username UserName) {
 })
 ```
 
-Similar to injection frameworks in other languages, inject includes the concept of modules. A module is a struct whose methods are providers. This is useful for grouping configuration data together with providers.
+Similar to injection frameworks in other languages, inject includes the
+concept of modules. A module is a struct whose methods are providers. This is
+useful for grouping configuration data together with providers.
 
-Any method starting with "Provide" will be bound as a Provider. If the method name contains "Multi" it will not be a singleton provider. If the method name contains "Sequence" it will contribute to a sequence of its return type.
+Any method starting with "Provide" will be bound as a Provider. If the method
+name contains "Multi" it will not be a singleton provider. If the method name
+contains "Sequence" it will contribute to a sequence of its return type.
+Similarly, if the method name contains "Mapping" it will contribute to a
+mapping of its return type.
 
 ```go
 type MyModule struct {}

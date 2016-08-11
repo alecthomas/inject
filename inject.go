@@ -220,8 +220,8 @@ func (s *singletonType) Is(annotation Annotation) bool {
 // Sequence annotates a provider or binding to indicate it is part of a slice of values implementing
 // the given type.
 //
-// 		injector.Bind(Sequence(1))
-// 		injector.Bind(Sequence(2))
+// 		injector.Bind(Sequence([]int{1}))
+// 		injector.Bind(Sequence([]int{2}))
 //
 //		expected := []int{1, 2}
 //		actual := injector.Get(reflect.TypeOf([]int{}))
@@ -240,10 +240,12 @@ func (s *sequenceType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	sliceType := reflect.SliceOf(t)
-	next, ok := i.Bindings[sliceType]
-	return sliceType, func() (interface{}, error) {
-		out := reflect.MakeSlice(sliceType, 0, 0)
+	if t.Kind() != reflect.Slice {
+		return nil, nil, fmt.Errorf("Sequence() must be bound to a slice not %s", t)
+	}
+	next, ok := i.Bindings[t]
+	return t, func() (interface{}, error) {
+		out := reflect.MakeSlice(t, 0, 0)
 		if ok {
 			v, err := next()
 			if err != nil {
@@ -255,7 +257,7 @@ func (s *sequenceType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = reflect.Append(out, reflect.ValueOf(v))
+		out = reflect.AppendSlice(out, reflect.ValueOf(v))
 		return out.Interface(), nil
 	}, nil
 }
@@ -266,21 +268,20 @@ func (s *sequenceType) Is(annotation Annotation) bool {
 }
 
 type mappingType struct {
-	k interface{}
 	v interface{}
 }
 
 // Mapping annotates a provider or binding to indicate it is part of a mapping of keys to values.
 //
-//		injector.Bind(Mapping("one", 1))
-//		injector.Bind(Mapping("two", 2))
-//		injector.Provide(Mapping("three", func() int { return 3 }))
+//		injector.Bind(Mapping(map[string]int{"one": 1}))
+//		injector.Bind(Mapping(map[string]int{"two": 2}))
+//		injector.Provide(Mapping(func() map[string]int { return map[string]int{"three": 3} }))
 //
 // 		expected := map[string]int{"one": 1, "two": 2, "three": 3}
 // 		actual := injector.Get(reflect.TypeOf(map[string]int{}))
 // 		assert.Equal(t, actual, expected)
-func Mapping(k, v interface{}) Annotation {
-	return &mappingType{k, v}
+func Mapping(v interface{}) Annotation {
+	return &mappingType{v}
 }
 
 func (m *mappingType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
@@ -288,25 +289,31 @@ func (m *mappingType) Build(i *Injector) (reflect.Type, BuilderFunc, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	kv := reflect.ValueOf(m.k)
-	mapType := reflect.MapOf(reflect.TypeOf(m.k), t)
-	next, ok := i.Bindings[mapType]
-	return mapType, func() (interface{}, error) {
-		var out reflect.Value
-		if ok {
-			v, err := next()
+	if t.Kind() != reflect.Map {
+		return nil, nil, fmt.Errorf("Mapping() must be bound to a map not %s", t)
+	}
+	// Previous mapping binding. Capture it and merge when requested.
+	prev, havePrev := i.Bindings[t]
+	return t, func() (interface{}, error) {
+		out := reflect.MakeMap(t)
+		if havePrev {
+			v, err := prev()
 			if err != nil {
 				return nil, err
 			}
-			out = reflect.ValueOf(v)
-		} else {
-			out = reflect.MakeMap(mapType)
+			prevMap := reflect.ValueOf(v)
+			for _, k := range prevMap.MapKeys() {
+				out.SetMapIndex(k, prevMap.MapIndex(k))
+			}
 		}
 		v, err := builder()
 		if err != nil {
 			return nil, err
 		}
-		out.SetMapIndex(kv, reflect.ValueOf(v))
+		nextMap := reflect.ValueOf(v)
+		for _, k := range nextMap.MapKeys() {
+			out.SetMapIndex(k, nextMap.MapIndex(k))
+		}
 		return out.Interface(), nil
 	}, nil
 }
@@ -373,7 +380,9 @@ func (i *Injector) Install(module interface{}) error {
 		methodType := mt.Method(j)
 		if strings.HasPrefix(methodType.Name, "Provide") {
 			provider := Provider(method.Interface())
-			if strings.Contains(methodType.Name, "Sequence") {
+			if strings.Contains(methodType.Name, "Mapping") {
+				provider = Mapping(provider)
+			} else if strings.Contains(methodType.Name, "Sequence") {
 				provider = Sequence(provider)
 			} else if !strings.Contains(methodType.Name, "Multi") {
 				provider = Singleton(provider)
