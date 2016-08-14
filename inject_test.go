@@ -135,7 +135,8 @@ func TestSequenceAnnotation(t *testing.T) {
 	i.MustBind(Sequence([]int{1}))
 	i.MustBind(Sequence([]int{2}))
 	i.MustBind(Sequence(Singleton(func() []int { return []int{3} })))
-	v := i.MustGet(reflect.TypeOf([]int{}))
+	v, err := i.Get(reflect.TypeOf([]int{}))
+	require.NoError(t, err)
 	require.Equal(t, []int{1, 2, 3}, v)
 }
 
@@ -201,6 +202,10 @@ type notQuiteStringer int
 
 func (n notQuiteStringer) String() string { return fmt.Sprintf("%d", n) }
 
+type notQuiteAnotherStringer float32
+
+func (n notQuiteAnotherStringer) String() string { return fmt.Sprintf("%f", n) }
+
 func TestInterfaceConversion(t *testing.T) {
 	f := func(s fmt.Stringer) error {
 		return nil
@@ -212,7 +217,7 @@ func TestInterfaceConversion(t *testing.T) {
 }
 
 func TestSliceInterfaceConversion(t *testing.T) {
-	expected := []fmt.Stringer{notQuiteStringer(10), notQuiteStringer(20)}
+	expected := []fmt.Stringer{notQuiteStringer(10), notQuiteAnotherStringer(20)}
 	actual := []fmt.Stringer{}
 	f := func(s []fmt.Stringer) error {
 		actual = s
@@ -220,14 +225,14 @@ func TestSliceInterfaceConversion(t *testing.T) {
 	}
 	i := New()
 	i.MustBind(Sequence([]notQuiteStringer{10}))
-	i.MustBind(Sequence([]notQuiteStringer{20}))
+	i.MustBind(Sequence([]notQuiteAnotherStringer{20}))
 	_, err := i.Call(f)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
 }
 
 func TestMapValueInterfaceConversion(t *testing.T) {
-	expected := map[string]fmt.Stringer{"a": notQuiteStringer(10), "b": notQuiteStringer(20)}
+	expected := map[string]fmt.Stringer{"a": notQuiteStringer(10), "b": notQuiteAnotherStringer(20)}
 	actual := map[string]fmt.Stringer{}
 	f := func(s map[string]fmt.Stringer) error {
 		actual = s
@@ -235,7 +240,7 @@ func TestMapValueInterfaceConversion(t *testing.T) {
 	}
 	i := New()
 	i.MustBind(Mapping(map[string]notQuiteStringer{"a": notQuiteStringer(10)}))
-	i.MustBind(Mapping(map[string]notQuiteStringer{"b": notQuiteStringer(20)}))
+	i.MustBind(Mapping(map[string]notQuiteAnotherStringer{"b": notQuiteAnotherStringer(20)}))
 	_, err := i.Call(f)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
@@ -271,4 +276,32 @@ func TestMappingIsImplicitlyProvidedWhenEnabled(t *testing.T) {
 
 func TestIs(t *testing.T) {
 	require.True(t, Sequence([]int{1, 2}).Is(&sequenceType{}))
+}
+
+func TestDuplicateNamedBindErrors(t *testing.T) {
+	type Named string
+
+	i := New()
+	err := i.Bind(Named("alec"))
+	require.NoError(t, err)
+	err = i.Bind(Named("bob"))
+	require.Error(t, err)
+}
+
+func TestValidate(t *testing.T) {
+	i := New()
+
+	err := i.Validate(func(string) {})
+	require.Error(t, err)
+
+	i.MustBind(func(int) string { return "hello" })
+	err = i.Validate(func(string) {})
+	require.Error(t, err)
+	i.MustBind(10)
+
+	// Verify that Validate doesn't call anything.
+	var actual string
+	err = i.Validate(func(s string) { actual = s })
+	require.NoError(t, err)
+	require.Equal(t, "", actual)
 }
