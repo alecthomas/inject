@@ -391,8 +391,10 @@ func (i *Injector) Configure(config Config) *Injector {
 // configuration data together with providers.
 //
 // Any method starting with "Provide" will be bound as a Provider. If the method name contains
-// "Multi" it will not be a singleton provider. If the method name contains "Sequence" it will
-// contribute to a sequence of its return type.
+// "Multi" it will not be a singleton provider. If the method name contains "Sequence" it must
+// return a slice which is merged with slices of the same type. If the method name contains
+// "Mapping" it must return a mapping which will be merged with mappings of the same type. Mapping
+// and Sequence can not be used simultaneously.
 //
 // For example, the following method will be called only once:
 //
