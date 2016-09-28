@@ -35,21 +35,24 @@
 //
 // 		injector.Bind(Literal(fmt.Sprintf))
 //
-// Mapping bindings are supported:
+// Mapping bindings are supported, in which case multiple bindings to the same map type will
+// merge the maps:
 //
-// 		injector.Bind(Mapping("one", 1))
-// 		injector.Bind(Mapping("two", 1))
-// 		injector.Call(func(m map[string]int) {
-// 			// ...
-// 		})
+// 		injector.Bind(Mapping(map[string]int{"one": 1}))
+// 		injector.Bind(Mapping(map[string]int{"two": 2}))
+//		injector.Bind(Mapping(func() map[string]int { return map[string]int{"three": 3} }))
+//		injector.Call(func(m map[string]int) {
+//		  // m == map[string]int{"one": 1, "two": 2, "three": 3}
+//		})
 //
-// As are sequences:
+// As are sequences, where multiple bindings will merge into a single slice
+// (note that order is arbitrary):
 //
 // 		injector.Bind(Sequence([]int{1, 2}))
 // 		injector.Bind(Sequence([]int{3, 4}))
 // 		injector.Bind(Sequence(func() []int { return  []int{5, 6} }))
 // 		injector.Call(func(s []int) {
-// 			// ...
+// 			// s = []int{1, 2, 3, 4, 5, 6}
 // 		})
 //
 // The equivalent of "named" values can be achieved with type aliases:

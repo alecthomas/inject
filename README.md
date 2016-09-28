@@ -50,20 +50,20 @@ Mapping bindings are supported:
 ```go
 injector.Bind(Mapping(map[string]int{"one": 1}))
 injector.Bind(Mapping(map[string]int{"two": 2}))
-injector.Bind(Mapping(func() map[string]int { return map[string]int{"three": 3 }}))
+injector.Bind(Mapping(func() map[string]int { return map[string]int{"three": 3} }))
 injector.Call(func(m map[string]int) {
-	// ...
+  // m == map[string]int{"one": 1, "two": 2, "three": 3}
 })
 ```
 
 As are sequences:
 
 ```go
-injector.Bind(Sequence([]int{1}))
-injector.Bind(Sequence([]int{2}))
-injector.Bind(Sequence(func() []int { return []int{3} }))
+injector.Bind(Sequence([]int{1, 2}))
+injector.Bind(Sequence([]int{3, 4}))
+injector.Bind(Sequence(func() []int { return  []int{5, 6} }))
 injector.Call(func(s []int) {
-	// ...
+  // s = []int{1, 2, 3, 4, 5, 6}
 })
 ```
 
