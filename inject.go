@@ -371,9 +371,10 @@ type Config struct {
 // Injector is a IoC container.
 type Injector struct {
 	Parent   *Injector
-	bindings map[reflect.Type]Binding
 	Config   Config
+	bindings map[reflect.Type]Binding
 	stack    map[reflect.Type]bool
+	modules  map[reflect.Type]reflect.Value
 }
 
 // New creates a new Injector.
@@ -383,6 +384,7 @@ func New() *Injector {
 	i := &Injector{
 		bindings: map[reflect.Type]Binding{},
 		stack:    map[reflect.Type]bool{},
+		modules:  map[reflect.Type]reflect.Value{},
 	}
 	i.Bind(i)
 	return i
@@ -396,6 +398,8 @@ func (i *Injector) Configure(config Config) *Injector {
 
 // Install a module. A module is a struct whose methods are providers. This is useful for grouping
 // configuration data together with providers.
+//
+// Duplicate modules are allowed as long as all fields are identical.
 //
 // Any method starting with "Provide" will be bound as a Provider. If the method name contains
 // "Multi" it will not be a singleton provider. If the method name contains "Sequence" it must
@@ -413,6 +417,15 @@ func (i *Injector) Configure(config Config) *Injector {
 //
 func (i *Injector) Install(module interface{}) error {
 	m := reflect.ValueOf(module)
+	im := reflect.Indirect(m)
+	// Duplicate module?
+	if existing, ok := i.modules[im.Type()]; ok {
+		if !reflect.DeepEqual(im.Interface(), existing.Interface()) {
+			return fmt.Errorf("duplicate unequal module, %s, installed", im.Type())
+		}
+		return nil
+	}
+	i.modules[im.Type()] = im
 	if reflect.Indirect(m).Kind() != reflect.Struct {
 		return fmt.Errorf("only structs may be used as modules but got %s", m.Type())
 	}

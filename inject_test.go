@@ -306,7 +306,9 @@ func TestValidate(t *testing.T) {
 	require.Equal(t, "", actual)
 }
 
-type testModuleA struct{}
+type testModuleA struct {
+	param int
+}
 
 func (t *testModuleA) ProvideInt(string) int { return 0 }
 
@@ -314,10 +316,26 @@ type testModuleB struct{}
 
 func (t *testModuleB) ProvideString(int) string { return "" }
 
-func TestCycle(t *testing.T) {
+func TestProviderCycle(t *testing.T) {
 	i := New()
 	i.Install(&testModuleA{})
 	i.Install(&testModuleB{})
 	_, err := i.Get(reflect.TypeOf(int(0)))
+	require.Error(t, err)
+}
+
+func TestInstallIdenticalDuplicateModule(t *testing.T) {
+	i := New()
+	err := i.Install(&testModuleA{})
+	require.NoError(t, err)
+	err = i.Install(&testModuleA{})
+	require.NoError(t, err)
+}
+
+func TestInstallDifferingDuplicateModule(t *testing.T) {
+	i := New()
+	err := i.Install(&testModuleA{param: 1})
+	require.NoError(t, err)
+	err = i.Install(&testModuleA{})
 	require.Error(t, err)
 }
