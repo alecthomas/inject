@@ -305,3 +305,19 @@ func TestValidate(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "", actual)
 }
+
+type testModuleA struct{}
+
+func (t *testModuleA) ProvideInt(string) int { return 0 }
+
+type testModuleB struct{}
+
+func (t *testModuleB) ProvideString(int) string { return "" }
+
+func TestCycle(t *testing.T) {
+	i := New()
+	i.Install(&testModuleA{})
+	i.Install(&testModuleB{})
+	_, err := i.Get(reflect.TypeOf(int(0)))
+	require.Error(t, err)
+}

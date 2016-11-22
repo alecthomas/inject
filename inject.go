@@ -61,6 +61,8 @@
 //
 // 		injector.Bind(Name("Bob"))
 // 		injector.Get(Name(""))
+//
+// Modules are also supported, see the Install() method for details.
 package inject
 
 import (
@@ -371,6 +373,7 @@ type Injector struct {
 	Parent   *Injector
 	bindings map[reflect.Type]Binding
 	Config   Config
+	stack    map[reflect.Type]bool
 }
 
 // New creates a new Injector.
@@ -379,6 +382,7 @@ type Injector struct {
 func New() *Injector {
 	i := &Injector{
 		bindings: map[reflect.Type]Binding{},
+		stack:    map[reflect.Type]bool{},
 	}
 	i.Bind(i)
 	return i
@@ -626,6 +630,12 @@ func (i *Injector) Get(t reflect.Type) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Detect recursive bindings.
+	if i.stack[binding.Provides] {
+		return nil, fmt.Errorf("recursive binding")
+	}
+	i.stack[binding.Provides] = true
+	defer func() { delete(i.stack, binding.Provides) }()
 	return binding.Build()
 }
 
