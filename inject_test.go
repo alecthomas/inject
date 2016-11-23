@@ -260,20 +260,6 @@ func TestMappingIsNotImplicitlyProvided(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestSliceIsImplicitlyProvidedWhenEnabled(t *testing.T) {
-	f := func(s []string) {}
-	i := New().Configure(Config{ImplicitSequences: true})
-	_, err := i.Call(f)
-	require.NoError(t, err)
-}
-
-func TestMappingIsImplicitlyProvidedWhenEnabled(t *testing.T) {
-	f := func(s map[string]string) {}
-	i := New().Configure(Config{ImplicitMappings: true})
-	_, err := i.Call(f)
-	require.NoError(t, err)
-}
-
 func TestIs(t *testing.T) {
 	require.True(t, Sequence([]int{1, 2}).Is(&sequenceType{}))
 }

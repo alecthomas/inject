@@ -80,18 +80,9 @@ type Binding struct {
 	Build    func() (interface{}, error)
 }
 
-// Config for an Injector.
-type Config struct {
-	// If true, empty sequences will be implicitly provided.
-	ImplicitSequences bool
-	// If true, empty mappings will be implicitly provided.
-	ImplicitMappings bool
-}
-
 // Injector is a IoC container.
 type Injector struct {
-	Parent   *Injector
-	Config   Config
+	parent   *Injector
 	bindings map[reflect.Type]Binding
 	stack    map[reflect.Type]bool
 	modules  map[reflect.Type]reflect.Value
@@ -107,12 +98,6 @@ func New() *Injector {
 		modules:  map[reflect.Type]reflect.Value{},
 	}
 	i.Bind(i)
-	return i
-}
-
-// Configure the injector.
-func (i *Injector) Configure(config Config) *Injector {
-	i.Config = config
 	return i
 }
 
@@ -170,6 +155,7 @@ func (i *Injector) Install(module interface{}) error {
 	return nil
 }
 
+// MustInstall installs a module and panics if it errors.
 func (i *Injector) MustInstall(module interface{}) {
 	err := i.Install(module)
 	if err != nil {
@@ -329,28 +315,8 @@ func (i *Injector) resolve(t reflect.Type) (Binding, error) {
 		}, nil
 	}
 
-	// Special case slices to always return something... this allows sequences to be injected
-	// when they don't have any providers.
-	if i.Config.ImplicitSequences && t.Kind() == reflect.Slice {
-		return Binding{
-			Provides: t,
-			Build: func() (interface{}, error) {
-				return reflect.MakeSlice(t, 0, 0).Interface(), nil
-			},
-		}, nil
-	}
-	// Special case maps to always return something... this allows mappings to be injected
-	// when they don't have any providers.
-	if i.Config.ImplicitMappings && t.Kind() == reflect.Map {
-		return Binding{
-			Provides: t,
-			Build: func() (interface{}, error) {
-				return reflect.MakeMap(t).Interface(), nil
-			},
-		}, nil
-	}
-	if i.Parent != nil {
-		return i.Parent.resolve(t)
+	if i.parent != nil {
+		return i.parent.resolve(t)
 	}
 	return Binding{}, fmt.Errorf("unbound type %s", t.String())
 }
@@ -404,6 +370,7 @@ func (i *Injector) Call(f interface{}) ([]interface{}, error) {
 	return out, nil
 }
 
+// MustCall calls f, injecting any arguments, and panics if the function errors.
 func (i *Injector) MustCall(f interface{}) []interface{} {
 	r, err := i.Call(f)
 	if err != nil {
@@ -417,7 +384,7 @@ func (i *Injector) MustCall(f interface{}) []interface{} {
 // The parent will never be modified by the child.
 func (i *Injector) Child() *Injector {
 	c := New()
-	c.Parent = i
+	c.parent = i
 	return c
 }
 
