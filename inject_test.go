@@ -21,9 +21,25 @@ func (s stringer) String() string {
 	return string(s)
 }
 
+type stringerStruct struct {
+	s string
+}
+
+func (s *stringerStruct) String() string {
+	return s.s
+}
+
 func TestInjectorBindTo(t *testing.T) {
 	i := New()
 	s := stringer("hello")
+	i.BindTo((*fmt.Stringer)(nil), s)
+	ss := i.MustGet(reflect.TypeOf((*fmt.Stringer)(nil)).Elem()).(fmt.Stringer)
+	require.Equal(t, "hello", ss.String())
+}
+
+func TestInjectorBindToStruct(t *testing.T) {
+	i := New()
+	s := &stringerStruct{"hello"}
 	i.BindTo((*fmt.Stringer)(nil), s)
 	ss := i.MustGet(reflect.TypeOf((*fmt.Stringer)(nil)).Elem()).(fmt.Stringer)
 	require.Equal(t, "hello", ss.String())
@@ -324,4 +340,22 @@ func TestInstallDifferingDuplicateModule(t *testing.T) {
 	require.NoError(t, err)
 	err = i.Install(&testModuleA{})
 	require.Error(t, err)
+}
+
+type testConfigurableModuleA struct{}
+
+func (t *testConfigurableModuleA) Configure(binder Binder) error { return binder.Bind(10) }
+
+type testConfigurableModuleB struct{}
+
+func (t *testConfigurableModuleB) Configure(binder Binder) error {
+	return binder.Install(&testConfigurableModuleA{})
+}
+
+func TestInstallConfigurableModule(t *testing.T) {
+	i := New()
+	i.Install(&testConfigurableModuleB{})
+	v, err := i.Get(reflect.TypeOf(0))
+	require.NoError(t, err)
+	require.Equal(t, 10, v.(int))
 }

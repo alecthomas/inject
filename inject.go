@@ -88,16 +88,34 @@ type Injector struct {
 	modules  map[reflect.Type]reflect.Value
 }
 
+// Binder is the Injector interface allowing bindings to be added.
+type Binder interface {
+	Bind(v interface{}) error
+	MustBind(v interface{})
+
+	BindTo(to interface{}, impl interface{}) error
+	MustBindTo(to interface{}, impl interface{})
+
+	Install(module interface{}) error
+	MustInstall(module interface{})
+}
+
+// A Module implementing this interface will have its Configure() method called at Install() time.
+type Module interface {
+	Configure(binder Binder) error
+}
+
 // New creates a new Injector.
 //
-// The injector itself is already bound.
+// The injector itself is already bound, as is an implementation of the Binder interface.
 func New() *Injector {
 	i := &Injector{
 		bindings: map[reflect.Type]*Binding{},
 		stack:    map[reflect.Type]bool{},
 		modules:  map[reflect.Type]reflect.Value{},
 	}
-	_ = i.Bind(i)
+	i.MustBind(i)
+	i.MustBindTo((*Binder)(nil), i)
 	return i
 }
 
@@ -129,6 +147,11 @@ func (i *Injector) Install(module interface{}) error {
 			return fmt.Errorf("duplicate unequal module, %s, installed", im.Type())
 		}
 		return nil
+	}
+	if module, ok := module.(Module); ok {
+		if err := module.Configure(i); err != nil {
+			return err
+		}
 	}
 	i.modules[im.Type()] = im
 	if reflect.Indirect(m).Kind() != reflect.Struct {
