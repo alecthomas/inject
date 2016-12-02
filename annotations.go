@@ -10,7 +10,7 @@ import (
 type Annotation interface {
 	// Build returns the type associated with the value being bound, and a function that builds that
 	// value at runtime.
-	Build(*Injector) (Binding, error)
+	Build(*Injector) (*Binding, error)
 	// Is checks if the annotation or any children are of the given annotation type.
 	Is(annotation Annotation) bool
 }
@@ -46,8 +46,8 @@ func (l *literalAnnotation) String() string {
 	return fmt.Sprintf("%v", l.v)
 }
 
-func (l *literalAnnotation) Build(*Injector) (Binding, error) {
-	return Binding{
+func (l *literalAnnotation) Build(*Injector) (*Binding, error) {
+	return &Binding{
 		Provides: reflect.TypeOf(l.v),
 		Build:    func() (interface{}, error) { return l.v, nil },
 	}, nil
@@ -67,11 +67,11 @@ func Provider(v interface{}) Annotation {
 	return &providerType{v}
 }
 
-func (p *providerType) Build(i *Injector) (Binding, error) {
+func (p *providerType) Build(i *Injector) (*Binding, error) {
 	f := reflect.ValueOf(p.v)
 	ft := f.Type()
 	if ft.Kind() != reflect.Func {
-		return Binding{}, fmt.Errorf("provider must be a function returning (<type>[, <error>])")
+		return &Binding{}, fmt.Errorf("provider must be a function returning (<type>[, <error>])")
 	}
 	rt := ft.Out(0)
 	inputs := []reflect.Type{}
@@ -81,9 +81,9 @@ func (p *providerType) Build(i *Injector) (Binding, error) {
 	switch ft.NumOut() {
 	case 1:
 		if rt == errorType {
-			return Binding{}, fmt.Errorf("provider must return (<type>[, <error>])")
+			return &Binding{}, fmt.Errorf("provider must return (<type>[, <error>])")
 		}
-		return Binding{
+		return &Binding{
 			Provides: rt,
 			Requires: inputs,
 			Build: func() (interface{}, error) {
@@ -96,9 +96,9 @@ func (p *providerType) Build(i *Injector) (Binding, error) {
 		}, nil
 	case 2:
 		if ft.Out(1) != errorType {
-			return Binding{}, fmt.Errorf("provider must return (<type>[, <error>])")
+			return &Binding{}, fmt.Errorf("provider must return (<type>[, <error>])")
 		}
-		return Binding{
+		return &Binding{
 			Provides: rt,
 			Requires: inputs,
 			Build: func() (interface{}, error) {
@@ -113,7 +113,7 @@ func (p *providerType) Build(i *Injector) (Binding, error) {
 			},
 		}, nil
 	}
-	return Binding{}, fmt.Errorf("provider must return (<type>[, <error>])")
+	return &Binding{}, fmt.Errorf("provider must return (<type>[, <error>])")
 }
 
 func (p *providerType) Is(annotation Annotation) bool {
@@ -140,19 +140,19 @@ type singletonType struct {
 	v interface{}
 }
 
-func (s *singletonType) Build(i *Injector) (Binding, error) {
+func (s *singletonType) Build(i *Injector) (*Binding, error) {
 	next := Annotate(s.v)
 	if !next.Is(&providerType{}) {
-		return Binding{}, fmt.Errorf("only providers can be singletons")
+		return &Binding{}, fmt.Errorf("only providers can be singletons")
 	}
 	builder, err := next.Build(i)
 	if err != nil {
-		return Binding{}, err
+		return &Binding{}, err
 	}
 	lock := sync.Mutex{}
 	isCached := false
 	var cached interface{}
-	return Binding{
+	return &Binding{
 		Provides: builder.Provides,
 		Requires: builder.Requires,
 		Build: func() (interface{}, error) {
@@ -191,16 +191,16 @@ type sequenceType struct {
 	v interface{}
 }
 
-func (s *sequenceType) Build(i *Injector) (Binding, error) {
+func (s *sequenceType) Build(i *Injector) (*Binding, error) {
 	binding, err := Annotate(s.v).Build(i)
 	if err != nil {
-		return Binding{}, err
+		return &Binding{}, err
 	}
 	if binding.Provides.Kind() != reflect.Slice {
-		return Binding{}, fmt.Errorf("Sequence() must be bound to a slice not %s", binding.Provides)
+		return &Binding{}, fmt.Errorf("Sequence() must be bound to a slice not %s", binding.Provides)
 	}
 	next, ok := i.bindings[binding.Provides]
-	return Binding{
+	return &Binding{
 		Provides: binding.Provides,
 		Requires: binding.Requires,
 		Build: func() (interface{}, error) {
@@ -244,17 +244,17 @@ func Mapping(v interface{}) Annotation {
 	return &mappingType{v}
 }
 
-func (m *mappingType) Build(i *Injector) (Binding, error) {
+func (m *mappingType) Build(i *Injector) (*Binding, error) {
 	binding, err := Annotate(m.v).Build(i)
 	if err != nil {
-		return Binding{}, err
+		return &Binding{}, err
 	}
 	if binding.Provides.Kind() != reflect.Map {
-		return Binding{}, fmt.Errorf("Mapping() must be bound to a map not %s", binding.Provides)
+		return &Binding{}, fmt.Errorf("Mapping() must be bound to a map not %s", binding.Provides)
 	}
 	// Previous mapping binding. Capture it and merge when requested.
 	prev, havePrev := i.bindings[binding.Provides]
-	return Binding{
+	return &Binding{
 		Provides: binding.Provides,
 		Requires: binding.Requires,
 		Build: func() (interface{}, error) {

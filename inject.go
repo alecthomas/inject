@@ -83,7 +83,7 @@ type Binding struct {
 // Injector is a IoC container.
 type Injector struct {
 	parent   *Injector
-	bindings map[reflect.Type]Binding
+	bindings map[reflect.Type]*Binding
 	stack    map[reflect.Type]bool
 	modules  map[reflect.Type]reflect.Value
 }
@@ -93,11 +93,11 @@ type Injector struct {
 // The injector itself is already bound.
 func New() *Injector {
 	i := &Injector{
-		bindings: map[reflect.Type]Binding{},
+		bindings: map[reflect.Type]*Binding{},
 		stack:    map[reflect.Type]bool{},
 		modules:  map[reflect.Type]reflect.Value{},
 	}
-	i.Bind(i)
+	_ = i.Bind(i)
 	return i
 }
 
@@ -212,7 +212,7 @@ func (i *Injector) BindTo(as interface{}, impl interface{}) error {
 		}
 		i.bindings[ift] = binding
 	} else if binding.Provides.ConvertibleTo(ift) {
-		i.bindings[ift] = Binding{
+		i.bindings[ift] = &Binding{
 			Provides: binding.Provides,
 			Requires: binding.Requires,
 			Build: func() (interface{}, error) {
@@ -236,7 +236,71 @@ func (i *Injector) MustBindTo(iface interface{}, impl interface{}) {
 	}
 }
 
-func (i *Injector) resolve(t reflect.Type) (Binding, error) {
+func (i *Injector) resolveSlice(t reflect.Type) (*Binding, error) {
+	et := t.Elem()
+	bindings := []*Binding{}
+	for bt, binding := range i.bindings {
+		if bt.Kind() == reflect.Slice && bt.Elem().Implements(et) {
+			bindings = append(bindings, binding)
+		}
+	}
+	requires := []reflect.Type{}
+	for _, binding := range bindings {
+		requires = append(requires, binding.Requires...)
+	}
+	return &Binding{
+		Provides: t,
+		Requires: requires,
+		Build: func() (interface{}, error) {
+			out := reflect.MakeSlice(t, 0, 0)
+			for _, binding := range bindings {
+				fout, err := binding.Build()
+				if err != nil {
+					return nil, err
+				}
+				foutv := reflect.ValueOf(fout)
+				for i := 0; i < foutv.Len(); i++ {
+					out = reflect.Append(out, foutv.Index(i))
+				}
+			}
+			return out.Interface(), nil
+		},
+	}, nil
+}
+
+func (i *Injector) resolveMapping(t reflect.Type) (*Binding, error) {
+	et := t.Elem()
+	bindings := []*Binding{}
+	for bt, binding := range i.bindings {
+		if bt.Kind() == reflect.Map && bt.Key() == t.Key() && bt.Elem().Implements(et) {
+			bindings = append(bindings, binding)
+		}
+	}
+	requires := []reflect.Type{}
+	for _, binding := range bindings {
+		requires = append(requires, binding.Requires...)
+	}
+	return &Binding{
+		Provides: t,
+		Requires: requires,
+		Build: func() (interface{}, error) {
+			out := reflect.MakeMap(t)
+			for _, binding := range bindings {
+				fout, err := binding.Build()
+				if err != nil {
+					return nil, err
+				}
+				foutv := reflect.ValueOf(fout)
+				for _, key := range foutv.MapKeys() {
+					out.SetMapIndex(key, foutv.MapIndex(key))
+				}
+			}
+			return out.Interface(), nil
+		},
+	}, nil
+}
+
+func (i *Injector) resolve(t reflect.Type) (*Binding, error) {
 	if binding, ok := i.bindings[t]; ok {
 		return binding, nil
 	}
@@ -251,74 +315,18 @@ func (i *Injector) resolve(t reflect.Type) (Binding, error) {
 	// If type is a slice of interfaces, attempt to find providers that provide slices
 	// of types that implement that interface.
 	if t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Interface {
-		et := t.Elem()
-		bindings := []Binding{}
-		for bt, binding := range i.bindings {
-			if bt.Kind() == reflect.Slice && bt.Elem().Implements(et) {
-				bindings = append(bindings, binding)
-			}
-		}
-		requires := []reflect.Type{}
-		for _, binding := range bindings {
-			requires = append(requires, binding.Requires...)
-		}
-		return Binding{
-			Provides: t,
-			Requires: requires,
-			Build: func() (interface{}, error) {
-				out := reflect.MakeSlice(t, 0, 0)
-				for _, binding := range bindings {
-					fout, err := binding.Build()
-					if err != nil {
-						return nil, err
-					}
-					foutv := reflect.ValueOf(fout)
-					for i := 0; i < foutv.Len(); i++ {
-						out = reflect.Append(out, foutv.Index(i))
-					}
-				}
-				return out.Interface(), nil
-			},
-		}, nil
+		return i.resolveSlice(t)
 	}
 	// If type is a map of interface values, attempt to find providers that provide maps of values
 	// that implement that interface. Keys must match.
 	if t.Kind() == reflect.Map && t.Elem().Kind() == reflect.Interface {
-		et := t.Elem()
-		bindings := []Binding{}
-		for bt, binding := range i.bindings {
-			if bt.Kind() == reflect.Map && bt.Key() == t.Key() && bt.Elem().Implements(et) {
-				bindings = append(bindings, binding)
-			}
-		}
-		requires := []reflect.Type{}
-		for _, binding := range bindings {
-			requires = append(requires, binding.Requires...)
-		}
-		return Binding{
-			Provides: t,
-			Requires: requires,
-			Build: func() (interface{}, error) {
-				out := reflect.MakeMap(t)
-				for _, binding := range bindings {
-					fout, err := binding.Build()
-					if err != nil {
-						return nil, err
-					}
-					foutv := reflect.ValueOf(fout)
-					for _, key := range foutv.MapKeys() {
-						out.SetMapIndex(key, foutv.MapIndex(key))
-					}
-				}
-				return out.Interface(), nil
-			},
-		}, nil
+		return i.resolveMapping(t)
 	}
 
 	if i.parent != nil {
 		return i.parent.resolve(t)
 	}
-	return Binding{}, fmt.Errorf("unbound type %s", t.String())
+	return &Binding{}, fmt.Errorf("unbound type %s", t.String())
 }
 
 // Get acquires a value of type t from the injector.
