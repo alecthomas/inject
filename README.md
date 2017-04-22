@@ -1,44 +1,105 @@
-# Inject - Reflection-based dependency injection for Go
+# Inject - Guice-ish dependency-injection for Go.
 [![](https://godoc.org/github.com/alecthomas/inject?status.svg)](http://godoc.org/github.com/alecthomas/inject) [![Build Status](https://travis-ci.org/alecthomas/inject.png)](https://travis-ci.org/alecthomas/inject) [![Gitter chat](https://badges.gitter.im/alecthomas.png)](https://gitter.im/alecthomas/Lobby)
 
-Example usage:
+This package attempts to provide similar features to Guice
+
+<!-- MarkdownTOC -->
+
+- [Example usage](#example-usage)
+- [Static bindings](#static-bindings)
+- [Literals](#literals)
+- [Mapping bindings](#mapping-bindings)
+- [Sequence bindings](#sequence-bindings)
+- [Named bindings](#named-bindings)
+- [Interfaces](#interfaces)
+- [Modules](#modules)
+- [Validation](#validation)
+
+<!-- /MarkdownTOC -->
+
+## Example usage
+
+Inject provides a simple way of wiring together modular applications. Each module contains configuration and logic to create the objects it provides. The main application installs all of these modules, and calls its main entry point using the injector.
 
 ```go
-injector := New()
+package db
+
+type MongoModule struct {
+  URI string
+}
+
+func (m *MongoModule) ProvideMongoDB() (*mgo.Database, error) {
+  return mgo.Dial(m.URI)
+}
+```
+
+```go
+package logging
+
+// LoggingModule provides a *log.Logger that writes log lines to a Mongo collection.
+type LoggingModule struct {
+  Flags int
+}
+
+func (l *LoggingModule) ProvideMongoLogger(db *mgo.Database) *log.Logger {
+  return NewMongoLogger(db, l.Flags)
+}
+
+type logEntry struct {
+  Text string `bson:"text"`
+}
+
+func NewMongoLogger(db *mgo.Database, flags int) *log.Logger {
+  return log.New(&mongologWriter{c: db.C("logs")}, "", flags)
+}
+
+type mongoLogWriter struct {
+  buf string
+  c *mgo.Collection
+}
+
+func (m *mongoLogWriter) Write(b []byte) (int, error) {
+  m.buf = m.buf + string(b)
+  for {
+    eol := strings.Index(m.buf, "\n")
+    if eol == -1 {
+      return len(b), nil
+    }
+    line := m.buf[:eol]
+    err := m.c.Insert(&logEntry{line})
+    if err != nil {
+      return len(b), err
+    }
+    m.buf = m.buf[eol:]
+  }
+}
+```
+
+```go
+package main
+
+func run(db *mgo.Database, log *log.Logger) {
+  log.Println("starting application")
+  // ...
+}
+
+func main() {
+  injector := New()
+  injector.Install(&MongoModule{URI: "mongodb://db1.example.net,db2.example.net:2500/?replicaSet=test&connectTimeoutMS=300000"""})
+  injector.Install(&LoggingModule{Flags: log.Ldate | log.Ltime | log.Llongfile})
+  injector.Call(run)
+}
+```
+
+## Static bindings
+
+The simplest form of binding simply binds a value directly:
+
+```go
 injector.Bind(http.DefaultServeMux)
-injector.Call(func(mux *http.ServeMux) {
-})
 ```
 
-It supports static bindings:
-
-```go
-injector.Bind(http.DefaultServeMux)
-```
-
-As well as recursive provider functions:
-
-```go
-type MongoURI string
-
-injector.Bind(MongoURI("mongodb://db1.example.net,db2.example.net:2500/?replicaSet=test&connectTimeoutMS=300000"))
-
-injector.Bind(func(uri MongoURI) (*mgo.Database, error) {
-	s, err := mgo.Dial(string(uri))
-	if err != nil {
-		return nil, err
-	}
-	return s.DB("my_db"), nil
-})
-
-injector.Bind(func(db *mgo.Database) *mgo.Collection {
-	return db.C("my_collection")
-})
-
-injector.Call(func(c *mgo.Collection) {
-	// ...
-})
-```
+## Literals
 
 To bind a function as a value, use Literal:
 
@@ -46,7 +107,9 @@ To bind a function as a value, use Literal:
 injector.Bind(Literal(fmt.Sprintf))
 ```
 
-Mapping bindings are supported:
+## Mapping bindings
+
+Mappings can be bound explicitly:
 
 ```go
 injector.Bind(Mapping(map[string]int{"one": 1}))
@@ -57,7 +120,17 @@ injector.Call(func(m map[string]int) {
 })
 ```
 
-As are sequences:
+Or provided via a Provider method that includes the term `Mapping` in its name:
+
+```go
+func (m *MyModule) ProvideStringIntMapping() map[string]int {
+  return map[string]int{"one": 1, "two": 2}
+}
+```
+
+## Sequence bindings
+
+Sequences can be bound explicitly:
 
 ```go
 injector.Bind(Sequence([]int{1, 2}))
@@ -68,15 +141,51 @@ injector.Call(func(s []int) {
 })
 ```
 
+Or provided via a Provider method that includes the term `Sequence` in its name:
+
+```go
+func (m *MyModule) ProvideIntSequence() []int {
+  return []int{1, 2}
+}
+```
+
+## Named bindings
+
 The equivalent of "named" values can be achieved with type aliases:
 
 ```go
 type UserName string
 
 injector.Bind(UserName("Bob"))
-injector.Call(func (username UserName) {
+injector.Call(func (username UserName) {})
+```
+
+## Interfaces
+
+Interfaces can be explicitly bound to implementations:
+
+```go
+type stringer string
+func (s stringer) String() string { return string(s) }
+
+injector.BindTo((*fmt.Stringer)(nil), stringer("hello"))
+injector.Call(func(s fmt.Stringer) {
+  fmt.Println(s.String())
 })
 ```
+
+However, if an explicit interface binding is not present, any bound object implementing that interface will be used:
+
+```go
+injector.Bind(stringer("hello"))
+injector.Call(func(s fmt.Stringer) {
+  fmt.Println(s.String())
+})
+```
+
+Similarly, if sequences/maps of interfaces are injected, explicit bindings will be used first, then inject will fallback to sequences/maps of objects implementing that interface.
+
+## Modules
 
 Similar to injection frameworks in other languages, inject includes the
 concept of modules. A module is a struct whose methods are providers. This is
@@ -99,6 +208,8 @@ type Randomness int
 // "Multi" provider, called every time an "int" is injected.
 func (m *MyModule) ProvideMultiRandomness() Randomness { return Randomness(rand.Int()) }
 ```
+
+## Validation
 
 Finally, after binding all of your types to the injector you can validate that
 a function is constructible via the Injector by calling `Validate(f)`.
