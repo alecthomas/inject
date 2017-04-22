@@ -1,7 +1,16 @@
 # Inject - Guice-ish dependency-injection for Go.
 [![](https://godoc.org/github.com/alecthomas/inject?status.svg)](http://godoc.org/github.com/alecthomas/inject) [![Build Status](https://travis-ci.org/alecthomas/inject.png)](https://travis-ci.org/alecthomas/inject) [![Gitter chat](https://badges.gitter.im/alecthomas.png)](https://gitter.im/alecthomas/Lobby)
 
-This package attempts to provide similar features to Guice
+Inject provides dependency injection for Go. Why? For small Go applications,
+manually constructing all required objects is more than sufficient. But for
+large, modular code bases, dependency injection can alleviate a lot of
+boilerplate code, particularly
+
+Inject provides a simple way of wiring together modular applications. Each
+module contains configuration and logic to create the objects it provides. The
+main application installs all of these modules, then calls its main entry
+point using the injector. The injector resolves any dependencies of the main
+function and injects them.
 
 <!-- MarkdownTOC -->
 
@@ -19,7 +28,7 @@ This package attempts to provide similar features to Guice
 
 ## Example usage
 
-Inject provides a simple way of wiring together modular applications. Each module contains configuration and logic to create the objects it provides. The main application installs all of these modules, and calls its main entry point using the injector.
+The following example illustrates a simple modular application.
 
 ```go
 package db
@@ -32,6 +41,10 @@ func (m *MongoModule) ProvideMongoDB() (*mgo.Database, error) {
   return mgo.Dial(m.URI)
 }
 ```
+
+The logging package shows idiomatic use of inject; it is just a thin wrapper
+around normal Go constructors. This is the least invasive way of using
+injection, and preferred.
 
 ```go
 package logging
@@ -75,6 +88,8 @@ func (m *mongoLogWriter) Write(b []byte) (int, error) {
 }
 ```
 
+Finally, the main entry point installs configured modules and calls an entry point.
+
 ```go
 package main
 
@@ -85,8 +100,10 @@ func run(db *mgo.Database, log *log.Logger) {
 
 func main() {
   injector := New()
-  injector.Install(&MongoModule{URI: "mongodb://db1.example.net,db2.example.net:2500/?replicaSet=test&connectTimeoutMS=300000"""})
-  injector.Install(&LoggingModule{Flags: log.Ldate | log.Ltime | log.Llongfile})
+  injector.Install(
+    &MongoModule{URI: "mongodb://db1.example.net,db2.example.net:2500/?replicaSet=test&connectTimeoutMS=300000"""},
+    &LoggingModule{Flags: log.Ldate | log.Ltime | log.Llongfile},
+  )
   injector.Call(run)
 }
 ```
@@ -174,7 +191,8 @@ injector.Call(func(s fmt.Stringer) {
 })
 ```
 
-However, if an explicit interface binding is not present, any bound object implementing that interface will be used:
+However, if an explicit interface binding is not present, any bound object
+implementing that interface will be used:
 
 ```go
 injector.Bind(stringer("hello"))
@@ -183,7 +201,9 @@ injector.Call(func(s fmt.Stringer) {
 })
 ```
 
-Similarly, if sequences/maps of interfaces are injected, explicit bindings will be used first, then inject will fallback to sequences/maps of objects implementing that interface.
+Similarly, if sequences/maps of interfaces are injected, explicit bindings
+will be used first, then inject will fallback to sequences/maps of objects
+implementing that interface.
 
 ## Modules
 

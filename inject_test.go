@@ -11,8 +11,8 @@ import (
 
 func TestInjectorBind(t *testing.T) {
 	i := New()
-	i.MustBind("hello")
-	require.Equal(t, "hello", i.MustGet(reflect.TypeOf("")))
+	i.Bind("hello")
+	require.Equal(t, "hello", i.Get(reflect.TypeOf("")))
 }
 
 type stringer string
@@ -33,7 +33,7 @@ func TestInjectorBindTo(t *testing.T) {
 	i := New()
 	s := stringer("hello")
 	i.BindTo((*fmt.Stringer)(nil), s)
-	ss := i.MustGet(reflect.TypeOf((*fmt.Stringer)(nil)).Elem()).(fmt.Stringer)
+	ss := i.Get(reflect.TypeOf((*fmt.Stringer)(nil)).Elem()).(fmt.Stringer)
 	require.Equal(t, "hello", ss.String())
 }
 
@@ -41,66 +41,66 @@ func TestInjectorBindToStruct(t *testing.T) {
 	i := New()
 	s := &stringerStruct{"hello"}
 	i.BindTo((*fmt.Stringer)(nil), s)
-	ss := i.MustGet(reflect.TypeOf((*fmt.Stringer)(nil)).Elem()).(fmt.Stringer)
+	ss := i.Get(reflect.TypeOf((*fmt.Stringer)(nil)).Elem()).(fmt.Stringer)
 	require.Equal(t, "hello", ss.String())
 }
 
 func TestInjectorBindToTypeAlias(t *testing.T) {
 	i := New()
-	i.MustBindTo(stringer(""), "hello")
-	v := i.MustGet(reflect.TypeOf(stringer(""))).(stringer)
+	i.BindTo(stringer(""), "hello")
+	v := i.Get(reflect.TypeOf(stringer(""))).(stringer)
 	require.Equal(t, stringer("hello"), v)
-	i.MustBindTo(int64(0), 10)
-	w := i.MustGet(reflect.TypeOf(int64(0)))
+	i.BindTo(int64(0), 10)
+	w := i.Get(reflect.TypeOf(int64(0)))
 	require.Equal(t, int64(10), w)
 }
 
 func TestInjectorBindToInvalidImplementation(t *testing.T) {
 	i := New()
 	s := "hello"
-	err := i.BindTo((*fmt.Stringer)(nil), s)
+	err := i.SafeBindTo((*fmt.Stringer)(nil), s)
 	require.Error(t, err)
 }
 
 func TestGetUnboundType(t *testing.T) {
 	i := New()
-	_, err := i.Get(reflect.TypeOf(""))
+	_, err := i.SafeGet(reflect.TypeOf(""))
 	require.Error(t, err)
 }
 
 func TestProvider(t *testing.T) {
 	i := New()
-	i.MustBind(func() string { return "hello" })
-	i.MustBind(func() int { return 123 })
-	sv := i.MustGet(reflect.TypeOf(""))
+	i.Bind(func() string { return "hello" })
+	i.Bind(func() int { return 123 })
+	sv := i.Get(reflect.TypeOf(""))
 	require.Equal(t, "hello", sv)
-	iv := i.MustGet(reflect.TypeOf(1))
+	iv := i.Get(reflect.TypeOf(1))
 	require.Equal(t, 123, iv)
 }
 
 func TestProviderGraph(t *testing.T) {
 	i := New()
-	i.MustBind(func() int { return 123 })
-	i.MustBind(func(n int) string { return fmt.Sprintf("hello:%d", n) })
-	sv := i.MustGet(reflect.TypeOf(""))
+	i.Bind(func() int { return 123 })
+	i.Bind(func(n int) string { return fmt.Sprintf("hello:%d", n) })
+	sv := i.Get(reflect.TypeOf(""))
 	require.Equal(t, "hello:123", sv)
 }
 
 func TestChildInjector(t *testing.T) {
 	i := New()
-	i.MustBind(func() string { return "hello" })
+	i.Bind(func() string { return "hello" })
 	c := i.Child()
-	c.MustBind(func() int { return 123 })
-	sv := c.MustGet(reflect.TypeOf(""))
+	c.Bind(func() int { return 123 })
+	sv := c.Get(reflect.TypeOf(""))
 	require.Equal(t, "hello", sv)
-	iv := c.MustGet(reflect.TypeOf(1))
+	iv := c.Get(reflect.TypeOf(1))
 	require.Equal(t, 123, iv)
 }
 
 func TestInjectorCall(t *testing.T) {
 	i := New()
-	i.MustBind("hello")
-	i.MustBind(123)
+	i.Bind("hello")
+	i.Bind(123)
 	as := ""
 	ai := 0
 	i.Call(func(s string, i int) {
@@ -114,54 +114,54 @@ func TestInjectorCall(t *testing.T) {
 func TestSingletonAnnotation(t *testing.T) {
 	i := New()
 	calls := 0
-	i.MustBind(Singleton(func() string {
+	i.Bind(Singleton(func() string {
 		calls++
 		return "hello"
 	}))
-	i.MustGet(reflect.TypeOf(""))
-	i.MustGet(reflect.TypeOf(""))
+	i.Get(reflect.TypeOf(""))
+	i.Get(reflect.TypeOf(""))
 	require.Equal(t, 1, calls)
 }
 
 func TestSingletonToNonProviderPanics(t *testing.T) {
 	i := New()
 	require.Panics(t, func() {
-		i.MustBind(Singleton(1))
+		i.Bind(Singleton(1))
 	})
 }
 
 func TestDynamicInjection(t *testing.T) {
 	i := New()
 	called := 0
-	i.MustBind(func() *string {
+	i.Bind(func() *string {
 		called++
 		s := new(string)
 		*s = fmt.Sprintf("hello:%d", called)
 		return s
 	})
 	p := new(string)
-	a := i.MustGet(reflect.TypeOf(p))
-	b := i.MustGet(reflect.TypeOf(p))
+	a := i.Get(reflect.TypeOf(p))
+	b := i.Get(reflect.TypeOf(p))
 	require.NotEqual(t, a, b)
 	require.Equal(t, 2, called)
 }
 
 func TestSequenceAnnotation(t *testing.T) {
 	i := New()
-	i.MustBind(Sequence([]int{1}))
-	i.MustBind(Sequence([]int{2}))
-	i.MustBind(Sequence(Singleton(func() []int { return []int{3} })))
-	v, err := i.Get(reflect.TypeOf([]int{}))
+	i.Bind(Sequence([]int{1}))
+	i.Bind(Sequence([]int{2}))
+	i.Bind(Sequence(Singleton(func() []int { return []int{3} })))
+	v, err := i.SafeGet(reflect.TypeOf([]int{}))
 	require.NoError(t, err)
 	require.Equal(t, []int{1, 2, 3}, v)
 }
 
 func TestMappingAnnotation(t *testing.T) {
 	i := New()
-	i.MustBind(Mapping(map[string]int{"one": 1}))
-	i.MustBind(Mapping(map[string]int{"two": 2}))
-	i.MustBind(Mapping(func() map[string]int { return map[string]int{"three": 3} }))
-	v := i.MustGet(reflect.TypeOf(map[string]int{}))
+	i.Bind(Mapping(map[string]int{"one": 1}))
+	i.Bind(Mapping(map[string]int{"two": 2}))
+	i.Bind(Mapping(func() map[string]int { return map[string]int{"three": 3} }))
+	v := i.Get(reflect.TypeOf(map[string]int{}))
 	require.Equal(t, map[string]int{"one": 1, "two": 2, "three": 3}, v)
 	called := false
 	i.Call(func(m map[string]int) {
@@ -174,7 +174,7 @@ func TestMappingAnnotation(t *testing.T) {
 func TestLiteral(t *testing.T) {
 	i := New()
 	buf := bytes.Buffer{}
-	i.MustBind(Literal(buf.WriteString))
+	i.Bind(Literal(buf.WriteString))
 	i.Call(func(write func(string) (int, error)) {
 		write("hello world")
 	})
@@ -185,7 +185,7 @@ type UserName string
 
 func TestPseudoBoundValues(t *testing.T) {
 	i := New()
-	i.MustBind(UserName("bob"))
+	i.Bind(UserName("bob"))
 	name := ""
 	i.Call(func(user UserName) {
 		name = string(user)
@@ -199,9 +199,9 @@ func (m *myModule) ProvideString(i int) string { return fmt.Sprintf("hello:%d", 
 
 func TestModule(t *testing.T) {
 	i := New()
-	i.MustBind(123)
-	i.MustInstall(&myModule{})
-	actual := i.MustGet(reflect.TypeOf("")).(string)
+	i.Bind(123)
+	i.Install(&myModule{})
+	actual := i.Get(reflect.TypeOf("")).(string)
 	require.Equal(t, "hello:123", actual)
 }
 
@@ -210,7 +210,7 @@ func TestCallError(t *testing.T) {
 		return fmt.Errorf("failed")
 	}
 	i := New()
-	_, err := i.Call(f)
+	_, err := i.SafeCall(f)
 	require.Error(t, err)
 }
 
@@ -227,8 +227,8 @@ func TestInterfaceConversion(t *testing.T) {
 		return nil
 	}
 	i := New()
-	i.MustBind(notQuiteStringer(10))
-	_, err := i.Call(f)
+	i.Bind(notQuiteStringer(10))
+	_, err := i.SafeCall(f)
 	require.NoError(t, err)
 }
 
@@ -240,9 +240,9 @@ func TestSliceInterfaceConversion(t *testing.T) {
 		return nil
 	}
 	i := New()
-	i.MustBind(Sequence([]notQuiteStringer{10}))
-	i.MustBind(Sequence([]notQuiteAnotherStringer{20}))
-	_, err := i.Call(f)
+	i.Bind(Sequence([]notQuiteStringer{10}))
+	i.Bind(Sequence([]notQuiteAnotherStringer{20}))
+	_, err := i.SafeCall(f)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
 }
@@ -255,9 +255,9 @@ func TestMapValueInterfaceConversion(t *testing.T) {
 		return nil
 	}
 	i := New()
-	i.MustBind(Mapping(map[string]notQuiteStringer{"a": notQuiteStringer(10)}))
-	i.MustBind(Mapping(map[string]notQuiteAnotherStringer{"b": notQuiteAnotherStringer(20)}))
-	_, err := i.Call(f)
+	i.Bind(Mapping(map[string]notQuiteStringer{"a": notQuiteStringer(10)}))
+	i.Bind(Mapping(map[string]notQuiteAnotherStringer{"b": notQuiteAnotherStringer(20)}))
+	_, err := i.SafeCall(f)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
 }
@@ -265,14 +265,14 @@ func TestMapValueInterfaceConversion(t *testing.T) {
 func TestSliceIsNotImplicitlyProvided(t *testing.T) {
 	f := func(s []string) {}
 	i := New()
-	_, err := i.Call(f)
+	_, err := i.SafeCall(f)
 	require.Error(t, err)
 }
 
 func TestMappingIsNotImplicitlyProvided(t *testing.T) {
 	f := func(s map[string]string) {}
 	i := New()
-	_, err := i.Call(f)
+	_, err := i.SafeCall(f)
 	require.Error(t, err)
 }
 
@@ -284,9 +284,9 @@ func TestDuplicateNamedBindErrors(t *testing.T) {
 	type Named string
 
 	i := New()
-	err := i.Bind(Named("alec"))
+	err := i.SafeBind(Named("alec"))
 	require.NoError(t, err)
-	err = i.Bind(Named("bob"))
+	err = i.SafeBind(Named("bob"))
 	require.Error(t, err)
 }
 
@@ -296,10 +296,10 @@ func TestValidate(t *testing.T) {
 	err := i.Validate(func(string) {})
 	require.Error(t, err)
 
-	i.MustBind(func(int) string { return "hello" })
+	i.Bind(func(int) string { return "hello" })
 	err = i.Validate(func(string) {})
 	require.Error(t, err)
-	i.MustBind(10)
+	i.Bind(10)
 
 	// Verify that Validate doesn't call anything.
 	var actual string
@@ -322,40 +322,44 @@ func TestProviderCycle(t *testing.T) {
 	i := New()
 	i.Install(&testModuleA{})
 	i.Install(&testModuleB{})
-	_, err := i.Get(reflect.TypeOf(int(0)))
+	_, err := i.SafeGet(reflect.TypeOf(int(0)))
 	require.Error(t, err)
 }
 
 func TestInstallIdenticalDuplicateModule(t *testing.T) {
 	i := New()
-	err := i.Install(&testModuleA{})
+	err := i.SafeInstall(&testModuleA{})
 	require.NoError(t, err)
-	err = i.Install(&testModuleA{})
+	err = i.SafeInstall(&testModuleA{})
 	require.NoError(t, err)
 }
 
 func TestInstallDifferingDuplicateModule(t *testing.T) {
 	i := New()
-	err := i.Install(&testModuleA{param: 1})
+	err := i.SafeInstall(&testModuleA{param: 1})
 	require.NoError(t, err)
-	err = i.Install(&testModuleA{})
+	err = i.SafeInstall(&testModuleA{})
 	require.Error(t, err)
 }
 
 type testConfigurableModuleA struct{}
 
-func (t *testConfigurableModuleA) Configure(binder Binder) error { return binder.Bind(10) }
+func (t *testConfigurableModuleA) Configure(binder Binder) error {
+	binder.Bind(10)
+	return nil
+}
 
 type testConfigurableModuleB struct{}
 
 func (t *testConfigurableModuleB) Configure(binder Binder) error {
-	return binder.Install(&testConfigurableModuleA{})
+	binder.Install(&testConfigurableModuleA{})
+	return nil
 }
 
 func TestInstallConfigurableModule(t *testing.T) {
 	i := New()
 	i.Install(&testConfigurableModuleB{})
-	v, err := i.Get(reflect.TypeOf(0))
+	v, err := i.SafeGet(reflect.TypeOf(0))
 	require.NoError(t, err)
 	require.Equal(t, 10, v.(int))
 }

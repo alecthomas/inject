@@ -88,16 +88,11 @@ type Injector struct {
 	modules  map[reflect.Type]reflect.Value
 }
 
-// Binder is the Injector interface allowing bindings to be added.
+// Binder is an interface allowing bindings to be added.
 type Binder interface {
-	Bind(v interface{}) error
-	MustBind(v interface{})
-
-	BindTo(to interface{}, impl interface{}) error
-	MustBindTo(to interface{}, impl interface{})
-
-	Install(module interface{}) error
-	MustInstall(module interface{})
+	Bind(things ...interface{}) Binder
+	BindTo(to interface{}, impl interface{}) Binder
+	Install(module ...interface{}) Binder
 }
 
 // A Module implementing this interface will have its Configure() method called at Install() time.
@@ -114,9 +109,58 @@ func New() *Injector {
 		stack:    map[reflect.Type]bool{},
 		modules:  map[reflect.Type]reflect.Value{},
 	}
-	i.MustBind(i)
-	i.MustBindTo((*Binder)(nil), i)
+	i.Bind(i)
+	i.BindTo((*Binder)(nil), i)
 	return i
+}
+
+// SafeInstall is like Install except it returns an error rather than panicking.
+func (i *Injector) SafeInstall(modules ...interface{}) (err error) {
+	// Capture panics and return them as errors.
+	defer func() {
+		if e := recover(); e != nil {
+			err = e.(error)
+		}
+	}()
+	for _, module := range modules {
+		m := reflect.ValueOf(module)
+		im := reflect.Indirect(m)
+		// Duplicate module?
+		if existing, ok := i.modules[im.Type()]; ok {
+			if !reflect.DeepEqual(im.Interface(), existing.Interface()) {
+				return fmt.Errorf("duplicate unequal module, %s, installed", im.Type())
+			}
+			return nil
+		}
+		if module, ok := module.(Module); ok {
+			if err := module.Configure(i); err != nil {
+				return err
+			}
+		}
+		i.modules[im.Type()] = im
+		if reflect.Indirect(m).Kind() != reflect.Struct {
+			return fmt.Errorf("only structs may be used as modules but got %s", m.Type())
+		}
+		mt := m.Type()
+		for j := 0; j < m.NumMethod(); j++ {
+			method := m.Method(j)
+			methodType := mt.Method(j)
+			if strings.HasPrefix(methodType.Name, "Provide") {
+				provider := Provider(method.Interface())
+				if strings.Contains(methodType.Name, "Mapping") {
+					provider = Mapping(provider)
+				} else if strings.Contains(methodType.Name, "Sequence") {
+					provider = Sequence(provider)
+				} else if !strings.Contains(methodType.Name, "Multi") {
+					provider = Singleton(provider)
+				}
+				if err := i.SafeBind(provider); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // Install a module. A module is a struct whose methods are providers. This is useful for grouping
@@ -130,6 +174,8 @@ func New() *Injector {
 // "Mapping" it must return a mapping which will be merged with mappings of the same type. Mapping
 // and Sequence can not be used simultaneously.
 //
+// Arguments to provider methods are injected.
+//
 // For example, the following method will be called only once:
 //
 // 		ProvideLog() *log.Logger { return log.New(...) }
@@ -138,87 +184,41 @@ func New() *Injector {
 //
 // 		ProvideMultiLog() *log.Logger { return log.New(...) }
 //
-func (i *Injector) Install(module interface{}) error {
-	m := reflect.ValueOf(module)
-	im := reflect.Indirect(m)
-	// Duplicate module?
-	if existing, ok := i.modules[im.Type()]; ok {
-		if !reflect.DeepEqual(im.Interface(), existing.Interface()) {
-			return fmt.Errorf("duplicate unequal module, %s, installed", im.Type())
-		}
-		return nil
+func (i *Injector) Install(modules ...interface{}) Binder {
+	err := i.SafeInstall(modules...)
+	if err != nil {
+		panic(err)
 	}
-	if module, ok := module.(Module); ok {
-		if err := module.Configure(i); err != nil {
+	return i
+}
+
+// SafeBind binds a value to the injector.
+func (i *Injector) SafeBind(things ...interface{}) error {
+	for _, v := range things {
+		annotation := Annotate(v)
+		binding, err := annotation.Build(i)
+		if err != nil {
 			return err
 		}
-	}
-	i.modules[im.Type()] = im
-	if reflect.Indirect(m).Kind() != reflect.Struct {
-		return fmt.Errorf("only structs may be used as modules but got %s", m.Type())
-	}
-	mt := m.Type()
-	for j := 0; j < m.NumMethod(); j++ {
-		method := m.Method(j)
-		methodType := mt.Method(j)
-		if strings.HasPrefix(methodType.Name, "Provide") {
-			provider := Provider(method.Interface())
-			if strings.Contains(methodType.Name, "Mapping") {
-				provider = Mapping(provider)
-			} else if strings.Contains(methodType.Name, "Sequence") {
-				provider = Sequence(provider)
-			} else if !strings.Contains(methodType.Name, "Multi") {
-				provider = Singleton(provider)
-			}
-			if err := i.Bind(provider); err != nil {
-				return err
-			}
+		if _, ok := i.bindings[binding.Provides]; ok && !(annotation.Is(&sequenceType{}) ||
+			annotation.Is(&mappingType{})) {
+			return fmt.Errorf("%s is already bound", binding.Provides)
 		}
+		i.bindings[binding.Provides] = binding
 	}
 	return nil
 }
 
-// MustInstall installs a module and panics if it errors.
-func (i *Injector) MustInstall(module interface{}) {
-	err := i.Install(module)
-	if err != nil {
+// Bind is like SafeBind except any errors will cause a panic.
+func (i *Injector) Bind(things ...interface{}) Binder {
+	if err := i.SafeBind(things...); err != nil {
 		panic(err)
 	}
+	return i
 }
 
-// Bind a value to the injector.
-func (i *Injector) Bind(v interface{}) error {
-	annotation := Annotate(v)
-	binding, err := annotation.Build(i)
-	if err != nil {
-		return err
-	}
-	if _, ok := i.bindings[binding.Provides]; ok && !(annotation.Is(&sequenceType{}) ||
-		annotation.Is(&mappingType{})) {
-		return fmt.Errorf("%s is already bound", binding.Provides)
-	}
-	i.bindings[binding.Provides] = binding
-	return nil
-}
-
-// MustBind is like Bind except any errors will cause a panic.
-func (i *Injector) MustBind(v interface{}) {
-	if err := i.Bind(v); err != nil {
-		panic(err)
-	}
-}
-
-// BindTo binds an interface to a value.
-//
-// "as" should either be a nil pointer to the required interface:
-//
-//		i.BindTo((*fmt.Stringer)(nil), impl)
-//
-// Or a type to convert to:
-//
-// 		i.BindTo(int64(0), 10)
-//
-func (i *Injector) BindTo(as interface{}, impl interface{}) error {
+// SafeBindTo is like BindTo except it returns an error rather than panicking.
+func (i *Injector) SafeBindTo(as interface{}, impl interface{}) error {
 	ift := reflect.TypeOf(as)
 	binding, err := Annotate(impl).Build(i)
 	if err != nil {
@@ -252,11 +252,21 @@ func (i *Injector) BindTo(as interface{}, impl interface{}) error {
 	return nil
 }
 
-// MustBindTo is like BindTo except any errors will cause a panic.
-func (i *Injector) MustBindTo(iface interface{}, impl interface{}) {
-	if err := i.BindTo(iface, impl); err != nil {
+// BindTo binds an interface to a value. Panics on error.
+//
+// "as" should either be a nil pointer to the required interface:
+//
+//		i.BindTo((*fmt.Stringer)(nil), impl)
+//
+// Or a type to convert to:
+//
+// 		i.BindTo(int64(0), 10)
+//
+func (i *Injector) BindTo(iface interface{}, impl interface{}) Binder {
+	if err := i.SafeBindTo(iface, impl); err != nil {
 		panic(err)
 	}
+	return i
 }
 
 func (i *Injector) resolveSlice(t reflect.Type) (*Binding, error) {
@@ -352,10 +362,10 @@ func (i *Injector) resolve(t reflect.Type) (*Binding, error) {
 	return &Binding{}, fmt.Errorf("unbound type %s", t.String())
 }
 
-// Get acquires a value of type t from the injector.
+// SafeGet acquires a value of type t from the injector.
 //
 // It is usually preferable to use Call().
-func (i *Injector) Get(t reflect.Type) (interface{}, error) {
+func (i *Injector) SafeGet(t reflect.Type) (interface{}, error) {
 	binding, err := i.resolve(t)
 	if err != nil {
 		return nil, err
@@ -369,21 +379,21 @@ func (i *Injector) Get(t reflect.Type) (interface{}, error) {
 	return binding.Build()
 }
 
-// MustGet is like Get except any errors will cause a panic.
-func (i *Injector) MustGet(t reflect.Type) interface{} {
-	v, err := i.Get(t)
+// Get is like SafeGet except any errors will cause a panic.
+func (i *Injector) Get(t reflect.Type) interface{} {
+	v, err := i.SafeGet(t)
 	if err != nil {
 		panic(err)
 	}
 	return v
 }
 
-// Call f, injecting any arguments.
-func (i *Injector) Call(f interface{}) ([]interface{}, error) {
+// SafeCall f, injecting any arguments.
+func (i *Injector) SafeCall(f interface{}) ([]interface{}, error) {
 	ft := reflect.TypeOf(f)
 	args := []reflect.Value{}
 	for ai := 0; ai < ft.NumIn(); ai++ {
-		a, err := i.Get(ft.In(ai))
+		a, err := i.SafeGet(ft.In(ai))
 		if err != nil {
 			return nil, fmt.Errorf("couldn't inject argument %d of %s: %s", ai+1, ft, err)
 		}
@@ -401,9 +411,9 @@ func (i *Injector) Call(f interface{}) ([]interface{}, error) {
 	return out, nil
 }
 
-// MustCall calls f, injecting any arguments, and panics if the function errors.
-func (i *Injector) MustCall(f interface{}) []interface{} {
-	r, err := i.Call(f)
+// Call calls f, injecting any arguments, and panics if the function errors.
+func (i *Injector) Call(f interface{}) []interface{} {
+	r, err := i.SafeCall(f)
 	if err != nil {
 		panic(err)
 	}

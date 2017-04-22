@@ -87,7 +87,7 @@ func (p *providerType) Build(i *Injector) (*Binding, error) {
 			Provides: rt,
 			Requires: inputs,
 			Build: func() (interface{}, error) {
-				rv, err := i.Call(p.v)
+				rv, err := i.SafeCall(p.v)
 				if err != nil {
 					return nil, err
 				}
@@ -102,7 +102,7 @@ func (p *providerType) Build(i *Injector) (*Binding, error) {
 			Provides: rt,
 			Requires: inputs,
 			Build: func() (interface{}, error) {
-				rv, err := i.Call(p.v)
+				rv, err := i.SafeCall(p.v)
 				if err != nil {
 					return nil, err
 				}
