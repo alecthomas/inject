@@ -84,10 +84,11 @@ type Binding struct {
 
 // Injector is a IoC container.
 type Injector struct {
-	parent   *Injector
-	bindings map[reflect.Type]*Binding
-	stack    map[reflect.Type]bool
-	modules  map[reflect.Type]reflect.Value
+	parent       *Injector
+	bindings     map[reflect.Type]*Binding
+	bindingOrder []reflect.Type
+	stack        map[reflect.Type]bool
+	modules      map[reflect.Type]reflect.Value
 }
 
 // Binder is an interface allowing bindings to be added.
@@ -219,6 +220,7 @@ func (i *Injector) SafeBind(things ...interface{}) error {
 			return fmt.Errorf("%s is already bound", binding.Provides)
 		}
 		i.bindings[binding.Provides] = binding
+		i.bindingOrder = append(i.bindingOrder, binding.Provides)
 	}
 	return nil
 }
@@ -263,6 +265,7 @@ func (i *Injector) SafeBindTo(as interface{}, impl interface{}) error {
 	} else {
 		return fmt.Errorf("implementation %s can not be converted to %s", binding.Provides, ift)
 	}
+	i.bindingOrder = append(i.bindingOrder, ift)
 	return nil
 }
 
@@ -286,7 +289,8 @@ func (i *Injector) BindTo(iface interface{}, impl interface{}) Binder {
 func (i *Injector) resolveSlice(t reflect.Type) (*Binding, error) {
 	et := t.Elem()
 	bindings := []*Binding{}
-	for bt, binding := range i.bindings {
+	for _, bt := range i.bindingOrder {
+		binding := i.bindings[bt]
 		if bt.Kind() == reflect.Slice && bt.Elem().Implements(et) {
 			bindings = append(bindings, binding)
 		}
@@ -318,7 +322,8 @@ func (i *Injector) resolveSlice(t reflect.Type) (*Binding, error) {
 func (i *Injector) resolveMapping(t reflect.Type) (*Binding, error) {
 	et := t.Elem()
 	bindings := []*Binding{}
-	for bt, binding := range i.bindings {
+	for _, bt := range i.bindingOrder {
+		binding := i.bindings[bt]
 		if bt.Kind() == reflect.Map && bt.Key() == t.Key() && bt.Elem().Implements(et) {
 			bindings = append(bindings, binding)
 		}

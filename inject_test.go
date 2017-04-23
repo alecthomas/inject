@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
-	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -245,17 +244,7 @@ func TestSliceInterfaceConversion(t *testing.T) {
 	i.Bind(Sequence([]notQuiteAnotherStringer{20}))
 	_, err := i.SafeCall(f)
 	require.NoError(t, err)
-	expectedStrings := []string{}
-	for _, s := range expected {
-		expectedStrings = append(expectedStrings, s.String())
-	}
-	actualStrings := []string{}
-	for _, s := range actual {
-		actualStrings = append(actualStrings, s.String())
-	}
-	sort.Strings(expectedStrings)
-	sort.Strings(actualStrings)
-	require.Equal(t, expectedStrings, actualStrings)
+	require.Equal(t, expected, actual)
 }
 
 func TestMapValueInterfaceConversion(t *testing.T) {
