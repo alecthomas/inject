@@ -69,6 +69,8 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+
+	"github.com/jinzhu/copier"
 )
 
 var errorType = reflect.TypeOf((*error)(nil)).Elem()
@@ -127,10 +129,7 @@ func (i *Injector) SafeInstall(modules ...interface{}) (err error) {
 		im := reflect.Indirect(m)
 		// Duplicate module?
 		if existing, ok := i.modules[im.Type()]; ok {
-			if !reflect.DeepEqual(im.Interface(), existing.Interface()) {
-				return fmt.Errorf("duplicate unequal module, %s, installed", im.Type())
-			}
-			return nil
+			return i.handleDuplicate(existing.Addr(), m)
 		}
 		if module, ok := module.(Module); ok {
 			if err := module.Configure(i); err != nil {
@@ -166,7 +165,8 @@ func (i *Injector) SafeInstall(modules ...interface{}) (err error) {
 // Install a module. A module is a struct whose methods are providers. This is useful for grouping
 // configuration data together with providers.
 //
-// Duplicate modules are allowed as long as all fields are identical.
+// Duplicate modules are allowed as long as all fields are identical or either the existing module,
+// or the new module, are zero value.
 //
 // Any method starting with "Provide" will be bound as a Provider. If the method name contains
 // "Multi" it will not be a singleton provider. If the method name contains "Sequence" it must
@@ -190,6 +190,20 @@ func (i *Injector) Install(modules ...interface{}) Binder {
 		panic(err)
 	}
 	return i
+}
+
+func (i *Injector) handleDuplicate(existing reflect.Value, incoming reflect.Value) error {
+	if reflect.DeepEqual(incoming.Interface(), existing.Interface()) {
+		return nil
+	}
+	zero := reflect.New(incoming.Type().Elem()).Interface()
+	// Incoming is the zero value, we keep our existing copy.
+	if reflect.DeepEqual(incoming.Interface(), zero) {
+		return nil
+	} else if reflect.DeepEqual(existing.Interface(), zero) {
+		return copier.Copy(existing.Interface(), incoming.Interface())
+	}
+	return fmt.Errorf("duplicate unequal module: %#v != %#v", incoming.Interface(), existing.Interface())
 }
 
 // SafeBind binds a value to the injector.

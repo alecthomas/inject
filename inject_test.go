@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -244,7 +245,17 @@ func TestSliceInterfaceConversion(t *testing.T) {
 	i.Bind(Sequence([]notQuiteAnotherStringer{20}))
 	_, err := i.SafeCall(f)
 	require.NoError(t, err)
-	require.Equal(t, expected, actual)
+	expectedStrings := []string{}
+	for _, s := range expected {
+		expectedStrings = append(expectedStrings, s.String())
+	}
+	actualStrings := []string{}
+	for _, s := range actual {
+		actualStrings = append(actualStrings, s.String())
+	}
+	sort.Strings(expectedStrings)
+	sort.Strings(actualStrings)
+	require.Equal(t, expectedStrings, actualStrings)
 }
 
 func TestMapValueInterfaceConversion(t *testing.T) {
@@ -338,7 +349,7 @@ func TestInstallDifferingDuplicateModule(t *testing.T) {
 	i := New()
 	err := i.SafeInstall(&testModuleA{param: 1})
 	require.NoError(t, err)
-	err = i.SafeInstall(&testModuleA{})
+	err = i.SafeInstall(&testModuleA{param: 2})
 	require.Error(t, err)
 }
 
@@ -362,4 +373,30 @@ func TestInstallConfigurableModule(t *testing.T) {
 	v, err := i.SafeGet(reflect.TypeOf(0))
 	require.NoError(t, err)
 	require.Equal(t, 10, v.(int))
+}
+
+type testModuleParam struct{ param int }
+
+func (t *testModuleParam) ProvideInt() int { return t.param }
+
+func TestInstallNewZeroModuleKeepsExisting(t *testing.T) {
+	i := New()
+	err := i.SafeInstall(&testModuleParam{param: 123})
+	require.NoError(t, err)
+	err = i.SafeInstall(&testModuleParam{})
+	require.NoError(t, err)
+	v, err := i.SafeGet(reflect.TypeOf(0))
+	require.NoError(t, err)
+	require.Equal(t, 123, v)
+}
+
+func TestInstallNewNonZeroModuleOverwritesExisting(t *testing.T) {
+	i := New()
+	err := i.SafeInstall(&testModuleParam{})
+	require.NoError(t, err)
+	err = i.SafeInstall(&testModuleParam{param: 123})
+	require.NoError(t, err)
+	v, err := i.SafeGet(reflect.TypeOf(0))
+	require.NoError(t, err)
+	require.Equal(t, 123, v)
 }
