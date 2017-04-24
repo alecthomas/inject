@@ -1,16 +1,16 @@
 # Inject - Guice-ish dependency-injection for Go.
 [![](https://godoc.org/github.com/alecthomas/inject?status.svg)](http://godoc.org/github.com/alecthomas/inject) [![Build Status](https://travis-ci.org/alecthomas/inject.png)](https://travis-ci.org/alecthomas/inject) [![Gitter chat](https://badges.gitter.im/alecthomas.png)](https://gitter.im/alecthomas/Lobby)
 
-Inject provides dependency injection for Go. Why? For small Go applications,
+Inject provides dependency injection for Go. For small Go applications,
 manually constructing all required objects is more than sufficient. But for
 large, modular code bases, dependency injection can alleviate a lot of
-boilerplate code, particularly
+boilerplate.
 
-Inject provides a simple way of wiring together modular applications. Each
-module contains configuration and logic to create the objects it provides. The
-main application installs all of these modules, then calls its main entry
-point using the injector. The injector resolves any dependencies of the main
-function and injects them.
+In particular, Inject provides a simple way of wiring together modular
+applications. Each module contains configuration and logic to create the
+objects it provides. The main application installs all of these modules, then
+calls its main entry point using the injector. The injector resolves any
+dependencies of the main function and injects them.
 
 <!-- MarkdownTOC -->
 
@@ -29,6 +29,28 @@ function and injects them.
 ## Example usage
 
 The following example illustrates a simple modular application.
+
+First, the main package installs configured modules and calls an entry point:
+
+```go
+package main
+
+func run(db *mgo.Database, log *log.Logger) {
+  log.Println("starting application")
+  // ...
+}
+
+func main() {
+  injector := New()
+  injector.Install(
+    &MongoModule{URI: "mongodb://db1.example.net,db2.example.net:2500/?replicaSet=test&connectTimeoutMS=300000"""},
+    &LoggingModule{Flags: log.Ldate | log.Ltime | log.Llongfile},
+  )
+  injector.Call(run)
+}
+```
+
+Next we have a simple Mongo module with a configurable URI:
 
 ```go
 package db
@@ -85,26 +107,6 @@ func (m *mongoLogWriter) Write(b []byte) (int, error) {
     }
     m.buf = m.buf[eol:]
   }
-}
-```
-
-Finally, the main entry point installs configured modules and calls an entry point.
-
-```go
-package main
-
-func run(db *mgo.Database, log *log.Logger) {
-  log.Println("starting application")
-  // ...
-}
-
-func main() {
-  injector := New()
-  injector.Install(
-    &MongoModule{URI: "mongodb://db1.example.net,db2.example.net:2500/?replicaSet=test&connectTimeoutMS=300000"""},
-    &LoggingModule{Flags: log.Ldate | log.Ltime | log.Llongfile},
-  )
-  injector.Call(run)
 }
 ```
 

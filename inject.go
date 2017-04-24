@@ -1,68 +1,84 @@
-// Package inject implements an Inversion of Control container (dependency injection) for Go.
+// Package inject provides dependency injection for Go. For small Go applications, manually
+// constructing all required objects is more than sufficient. But for large, modular code bases,
+// dependency injection can alleviate a lot of boilerplate.
 //
-// Example usage:
+// The following example illustrates a simple modular application.
 //
-// 		injector := New()
-// 		injector.Bind(http.DefaultServeMux)
-// 		injector.Call(func(mux *http.ServeMux) {
-// 		})
+// First, the main package installs configured modules and calls an entry point:
 //
-// It supports static bindings:
+// 		package main
 //
-// 		injector.Bind(http.DefaultServeMux)
+// 		func run(db *mgo.Database, log *log.Logger) {
+// 		  log.Println("starting application")
+// 		  // ...
+// 		}
 //
-// As well as recursive provider functions:
+// 		func main() {
+// 		  injector := New()
+// 		  injector.Install(
+// 		    &MongoModule{URI: "mongodb://db1.example.net,db2.example.net:2500/?replicaSet=test&connectTimeoutMS=300000"""},
+// 		    &LoggingModule{Flags: log.Ldate | log.Ltime | log.Llongfile},
+// 		  )
+// 		  injector.Call(run)
+// 		}
 //
-//		type MongoURI string
+// Next we have a simple Mongo module with a configurable URI:
 //
-//		injector.Bind(func(uri MongoURI) *mgo.Database {
-//			s, err := mgo.Dial(string(uri))
-//			if err != nil {
-//				panic(err)
-//			}
-//			return s.DB("my_db")
-//		})
+// 		package db
 //
-// 		injector.Bind(func(db *mgo.Database) *mgo.Collection {
-// 			return db.C("my_collection")
-// 		})
+// 		type MongoModule struct {
+// 		  URI string
+// 		}
 //
-// 		injector.Call(func(c *mgo.Collection) {
-// 			// ...
-// 		})
+// 		func (m *MongoModule) ProvideMongoDB() (*mgo.Database, error) {
+// 		  return mgo.Dial(m.URI)
+// 		}
 //
-// To bind a function as a value, use Literal:
+// The logging package shows idiomatic use of inject; it is just a thin wrapper
+// around normal Go constructors. This is the least invasive way of using
+// injection, and preferred.
 //
-// 		injector.Bind(Literal(fmt.Sprintf))
+// 		package logging
 //
-// Mapping bindings are supported, in which case multiple bindings to the same map type will
-// merge the maps:
+// 		// LoggingModule provides a *log.Logger that writes log lines to a Mongo collection.
+// 		type LoggingModule struct {
+// 		  Flags int
+// 		}
 //
-// 		injector.Bind(Mapping(map[string]int{"one": 1}))
-// 		injector.Bind(Mapping(map[string]int{"two": 2}))
-//		injector.Bind(Mapping(func() map[string]int { return map[string]int{"three": 3} }))
-//		injector.Call(func(m map[string]int) {
-//		  // m == map[string]int{"one": 1, "two": 2, "three": 3}
-//		})
+// 		func (l *LoggingModule) ProvideMongoLogger(db *mgo.Database) *log.Logger {
+// 		  return NewMongoLogger(db, l.Flags)
+// 		}
 //
-// As are sequences, where multiple bindings will merge into a single slice
-// (note that order is arbitrary):
+// 		type logEntry struct {
+// 		  Text string `bson:"text"`
+// 		}
 //
-// 		injector.Bind(Sequence([]int{1, 2}))
-// 		injector.Bind(Sequence([]int{3, 4}))
-// 		injector.Bind(Sequence(func() []int { return  []int{5, 6} }))
-// 		injector.Call(func(s []int) {
-// 			// s = []int{1, 2, 3, 4, 5, 6}
-// 		})
+// 		func NewMongoLogger(db *mgo.Database, flags int) *log.Logger {
+// 		  return log.New(&mongologWriter{c: db.C("logs")}, "", flags)
+// 		}
 //
-// The equivalent of "named" values can be achieved with type aliases:
+// 		type mongoLogWriter struct {
+// 		  buf string
+// 		  c *mgo.Collection
+// 		}
 //
-// 		type Name string
+// 		func (m *mongoLogWriter) Write(b []byte) (int, error) {
+// 		  m.buf = m.buf + string(b)
+// 		  for {
+// 		    eol := strings.Index(m.buf, "\n")
+// 		    if eol == -1 {
+// 		      return len(b), nil
+// 		    }
+// 		    line := m.buf[:eol]
+// 		    err := m.c.Insert(&logEntry{line})
+// 		    if err != nil {
+// 		      return len(b), err
+// 		    }
+// 		    m.buf = m.buf[eol:]
+// 		  }
+// 		}
 //
-// 		injector.Bind(Name("Bob"))
-// 		injector.Get(Name(""))
-//
-// Modules are also supported, see the Install() method for details.
+// See the [README](https://github.com/alecthomas/inject/blob/master/README.md) for more details.
 package inject
 
 import (
