@@ -15,7 +15,8 @@ dependencies of the main function and injects them.
 <!-- MarkdownTOC -->
 
 - [Example usage](#example-usage)
-- [Static bindings](#static-bindings)
+- [Value bindings](#value-bindings)
+- [Singletons](#singletons)
 - [Literals](#literals)
 - [Mapping bindings](#mapping-bindings)
 - [Sequence bindings](#sequence-bindings)
@@ -110,12 +111,33 @@ func (m *mongoLogWriter) Write(b []byte) (int, error) {
 }
 ```
 
-## Static bindings
+## Value bindings
 
 The simplest form of binding simply binds a value directly:
 
 ```go
 injector.Bind(http.DefaultServeMux)
+```
+
+## Singletons
+
+Function bindings are not singleton by default. For example, the following
+function binding will be called each time an int is requested:
+
+```go
+value := 0
+injector.Bind(func() int {
+  value++
+  return value
+})
+```
+
+Wrap the function in `Singleton()` to ensure it is called only once:
+
+```go
+injector.Bind(Singleton(func() int {
+  return 10
+}))
 ```
 
 ## Literals
