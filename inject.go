@@ -98,7 +98,7 @@ type Binding struct {
 	Build    func() (interface{}, error)
 }
 
-// Injector is a IoC container.
+// Injector is an IoC container.
 type Injector struct {
 	parent       *Injector
 	bindings     map[reflect.Type]*Binding
