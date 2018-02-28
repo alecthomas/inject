@@ -10,9 +10,11 @@ import (
 )
 
 func TestInjectorBind(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	i.Bind("hello")
-	require.Equal(t, "hello", i.Get(reflect.TypeOf("")))
+	v, err := i.Get(reflect.TypeOf(""))
+	require.NoError(t, err)
+	require.Equal(t, "hello", v)
 }
 
 type stringer string
@@ -30,89 +32,101 @@ func (s *stringerStruct) String() string {
 }
 
 func TestInjectorBindTo(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	s := stringer("hello")
 	i.BindTo((*fmt.Stringer)(nil), s)
-	ss := i.Get(reflect.TypeOf((*fmt.Stringer)(nil)).Elem()).(fmt.Stringer)
+	v, err := i.Get(reflect.TypeOf((*fmt.Stringer)(nil)).Elem())
+	require.NoError(t, err)
+	ss := v.(fmt.Stringer)
 	require.Equal(t, "hello", ss.String())
 }
 
 func TestInjectorBindToStruct(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	s := &stringerStruct{"hello"}
 	i.BindTo((*fmt.Stringer)(nil), s)
-	ss := i.Get(reflect.TypeOf((*fmt.Stringer)(nil)).Elem()).(fmt.Stringer)
-	require.Equal(t, "hello", ss.String())
+	ss, err := i.Get(reflect.TypeOf((*fmt.Stringer)(nil)).Elem())
+	require.NoError(t, err)
+	require.Equal(t, "hello", ss.(fmt.Stringer).String())
 }
 
 func TestInjectorBindToTypeAlias(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	i.BindTo(stringer(""), "hello")
-	v := i.Get(reflect.TypeOf(stringer(""))).(stringer)
+	iv, err := i.Get(reflect.TypeOf(stringer("")))
+	require.NoError(t, err)
+	v := iv.(stringer)
 	require.Equal(t, stringer("hello"), v)
 	i.BindTo(int64(0), 10)
-	w := i.Get(reflect.TypeOf(int64(0)))
+	w, err := i.Get(reflect.TypeOf(int64(0)))
+	require.NoError(t, err)
 	require.Equal(t, int64(10), w)
 }
 
 func TestInjectorBindToInvalidImplementation(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	s := "hello"
-	err := i.SafeBindTo((*fmt.Stringer)(nil), s)
+	err := i.BindTo((*fmt.Stringer)(nil), s)
 	require.Error(t, err)
 }
 
 func TestGetUnboundType(t *testing.T) {
-	i := New()
-	_, err := i.SafeGet(reflect.TypeOf(""))
+	i := SafeNew()
+	_, err := i.Get(reflect.TypeOf(""))
 	require.Error(t, err)
 }
 
 func TestProvider(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	i.Bind(func() string { return "hello" })
 	i.Bind(func() int { return 123 })
-	sv := i.Get(reflect.TypeOf(""))
+	sv, err := i.Get(reflect.TypeOf(""))
+	require.NoError(t, err)
 	require.Equal(t, "hello", sv)
-	iv := i.Get(reflect.TypeOf(1))
+	iv, err := i.Get(reflect.TypeOf(1))
+	require.NoError(t, err)
 	require.Equal(t, 123, iv)
 }
 
 func TestProviderGraph(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	i.Bind(func() int { return 123 })
 	i.Bind(func(n int) string { return fmt.Sprintf("hello:%d", n) })
-	sv := i.Get(reflect.TypeOf(""))
+	sv, err := i.Get(reflect.TypeOf(""))
+	require.NoError(t, err)
 	require.Equal(t, "hello:123", sv)
 }
 
 func TestChildInjector(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	i.Bind(func() string { return "hello" })
 	c := i.Child()
 	c.Bind(func() int { return 123 })
-	sv := c.Get(reflect.TypeOf(""))
+	sv, err := c.Get(reflect.TypeOf(""))
+	require.NoError(t, err)
 	require.Equal(t, "hello", sv)
-	iv := c.Get(reflect.TypeOf(1))
+	iv, err := c.Get(reflect.TypeOf(1))
+	require.NoError(t, err)
 	require.Equal(t, 123, iv)
 }
 
 func TestInjectorCall(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	i.Bind("hello")
 	i.Bind(123)
 	as := ""
 	ai := 0
-	i.Call(func(s string, i int) {
+	_, err := i.Call(func(s string, i int) {
 		as = s
 		ai = i
 	})
+	require.NoError(t, err)
 	require.Equal(t, "hello", as)
 	require.Equal(t, 123, ai)
 }
 
 func TestSingletonAnnotation(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	calls := 0
 	i.Bind(Singleton(func() string {
 		calls++
@@ -131,7 +145,7 @@ func TestSingletonToNonProviderPanics(t *testing.T) {
 }
 
 func TestDynamicInjection(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	called := 0
 	i.Bind(func() *string {
 		called++
@@ -140,28 +154,31 @@ func TestDynamicInjection(t *testing.T) {
 		return s
 	})
 	p := new(string)
-	a := i.Get(reflect.TypeOf(p))
-	b := i.Get(reflect.TypeOf(p))
+	a, err := i.Get(reflect.TypeOf(p))
+	require.NoError(t, err)
+	b, err := i.Get(reflect.TypeOf(p))
+	require.NoError(t, err)
 	require.NotEqual(t, a, b)
 	require.Equal(t, 2, called)
 }
 
 func TestSequenceAnnotation(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	i.Bind(Sequence([]int{1}))
 	i.Bind(Sequence([]int{2}))
 	i.Bind(Sequence(Singleton(func() []int { return []int{3} })))
-	v, err := i.SafeGet(reflect.TypeOf([]int{}))
+	v, err := i.Get(reflect.TypeOf([]int{}))
 	require.NoError(t, err)
 	require.Equal(t, []int{1, 2, 3}, v)
 }
 
 func TestMappingAnnotation(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	i.Bind(Mapping(map[string]int{"one": 1}))
 	i.Bind(Mapping(map[string]int{"two": 2}))
 	i.Bind(Mapping(func() map[string]int { return map[string]int{"three": 3} }))
-	v := i.Get(reflect.TypeOf(map[string]int{}))
+	v, err := i.Get(reflect.TypeOf(map[string]int{}))
+	require.NoError(t, err)
 	require.Equal(t, map[string]int{"one": 1, "two": 2, "three": 3}, v)
 	called := false
 	i.Call(func(m map[string]int) {
@@ -172,7 +189,7 @@ func TestMappingAnnotation(t *testing.T) {
 }
 
 func TestLiteral(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	buf := bytes.Buffer{}
 	i.Bind(Literal(buf.WriteString))
 	i.Call(func(write func(string) (int, error)) {
@@ -184,7 +201,7 @@ func TestLiteral(t *testing.T) {
 type UserName string
 
 func TestPseudoBoundValues(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	i.Bind(UserName("bob"))
 	name := ""
 	i.Call(func(user UserName) {
@@ -198,10 +215,13 @@ type myModule struct{}
 func (m *myModule) ProvideString(i int) string { return fmt.Sprintf("hello:%d", i) }
 
 func TestModule(t *testing.T) {
-	i := New()
-	i.Bind(123)
-	i.Install(&myModule{})
-	actual := i.Get(reflect.TypeOf("")).(string)
+	i := SafeNew()
+	err := i.Bind(123)
+	require.NoError(t, err)
+	err = i.Install(&myModule{})
+	require.NoError(t, err)
+	actual, err := i.Get(reflect.TypeOf(""))
+	require.NoError(t, err)
 	require.Equal(t, "hello:123", actual)
 }
 
@@ -209,8 +229,8 @@ func TestCallError(t *testing.T) {
 	f := func() error {
 		return fmt.Errorf("failed")
 	}
-	i := New()
-	_, err := i.SafeCall(f)
+	i := SafeNew()
+	_, err := i.Call(f)
 	require.Error(t, err)
 }
 
@@ -226,9 +246,9 @@ func TestInterfaceConversion(t *testing.T) {
 	f := func(s fmt.Stringer) error {
 		return nil
 	}
-	i := New()
+	i := SafeNew()
 	i.Bind(notQuiteStringer(10))
-	_, err := i.SafeCall(f)
+	_, err := i.Call(f)
 	require.NoError(t, err)
 }
 
@@ -239,10 +259,10 @@ func TestSliceInterfaceConversion(t *testing.T) {
 		actual = s
 		return nil
 	}
-	i := New()
+	i := SafeNew()
 	i.Bind(Sequence([]notQuiteStringer{10}))
 	i.Bind(Sequence([]notQuiteAnotherStringer{20}))
-	_, err := i.SafeCall(f)
+	_, err := i.Call(f)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
 }
@@ -254,25 +274,25 @@ func TestMapValueInterfaceConversion(t *testing.T) {
 		actual = s
 		return nil
 	}
-	i := New()
+	i := SafeNew()
 	i.Bind(Mapping(map[string]notQuiteStringer{"a": notQuiteStringer(10)}))
 	i.Bind(Mapping(map[string]notQuiteAnotherStringer{"b": notQuiteAnotherStringer(20)}))
-	_, err := i.SafeCall(f)
+	_, err := i.Call(f)
 	require.NoError(t, err)
 	require.Equal(t, expected, actual)
 }
 
 func TestSliceIsNotImplicitlyProvided(t *testing.T) {
 	f := func(s []string) {}
-	i := New()
-	_, err := i.SafeCall(f)
+	i := SafeNew()
+	_, err := i.Call(f)
 	require.Error(t, err)
 }
 
 func TestMappingIsNotImplicitlyProvided(t *testing.T) {
 	f := func(s map[string]string) {}
-	i := New()
-	_, err := i.SafeCall(f)
+	i := SafeNew()
+	_, err := i.Call(f)
 	require.Error(t, err)
 }
 
@@ -283,15 +303,15 @@ func TestIs(t *testing.T) {
 func TestDuplicateNamedBindErrors(t *testing.T) {
 	type Named string
 
-	i := New()
-	err := i.SafeBind(Named("alec"))
+	i := SafeNew()
+	err := i.Bind(Named("alec"))
 	require.NoError(t, err)
-	err = i.SafeBind(Named("bob"))
+	err = i.Bind(Named("bob"))
 	require.Error(t, err)
 }
 
 func TestValidate(t *testing.T) {
-	i := New()
+	i := SafeNew()
 
 	err := i.Validate(func(string) {})
 	require.Error(t, err)
@@ -319,26 +339,26 @@ type testModuleB struct{}
 func (t *testModuleB) ProvideString(int) string { return "" }
 
 func TestProviderCycle(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	i.Install(&testModuleA{})
 	i.Install(&testModuleB{})
-	_, err := i.SafeGet(reflect.TypeOf(int(0)))
+	_, err := i.Get(reflect.TypeOf(int(0)))
 	require.Error(t, err)
 }
 
 func TestInstallIdenticalDuplicateModule(t *testing.T) {
-	i := New()
-	err := i.SafeInstall(&testModuleA{})
+	i := SafeNew()
+	err := i.Install(&testModuleA{})
 	require.NoError(t, err)
-	err = i.SafeInstall(&testModuleA{})
+	err = i.Install(&testModuleA{})
 	require.NoError(t, err)
 }
 
 func TestInstallDifferingDuplicateModule(t *testing.T) {
-	i := New()
-	err := i.SafeInstall(&testModuleA{param: 1})
+	i := SafeNew()
+	err := i.Install(&testModuleA{param: 1})
 	require.NoError(t, err)
-	err = i.SafeInstall(&testModuleA{param: 2})
+	err = i.Install(&testModuleA{param: 2})
 	require.Error(t, err)
 }
 
@@ -357,9 +377,9 @@ func (t *testConfigurableModuleB) Configure(binder Binder) error {
 }
 
 func TestInstallConfigurableModule(t *testing.T) {
-	i := New()
+	i := SafeNew()
 	i.Install(&testConfigurableModuleB{})
-	v, err := i.SafeGet(reflect.TypeOf(0))
+	v, err := i.Get(reflect.TypeOf(0))
 	require.NoError(t, err)
 	require.Equal(t, 10, v.(int))
 }
@@ -369,23 +389,23 @@ type testModuleParam struct{ param int }
 func (t *testModuleParam) ProvideInt() int { return t.param }
 
 func TestInstallNewZeroModuleKeepsExisting(t *testing.T) {
-	i := New()
-	err := i.SafeInstall(&testModuleParam{param: 123})
+	i := SafeNew()
+	err := i.Install(&testModuleParam{param: 123})
 	require.NoError(t, err)
-	err = i.SafeInstall(&testModuleParam{})
+	err = i.Install(&testModuleParam{})
 	require.NoError(t, err)
-	v, err := i.SafeGet(reflect.TypeOf(0))
+	v, err := i.Get(reflect.TypeOf(0))
 	require.NoError(t, err)
 	require.Equal(t, 123, v)
 }
 
 func TestInstallNewNonZeroModuleOverwritesExisting(t *testing.T) {
-	i := New()
-	err := i.SafeInstall(&testModuleParam{})
+	i := SafeNew()
+	err := i.Install(&testModuleParam{})
 	require.NoError(t, err)
-	err = i.SafeInstall(&testModuleParam{param: 123})
+	err = i.Install(&testModuleParam{param: 123})
 	require.NoError(t, err)
-	v, err := i.SafeGet(reflect.TypeOf(0))
+	v, err := i.Get(reflect.TypeOf(0))
 	require.NoError(t, err)
 	require.Equal(t, 123, v)
 }

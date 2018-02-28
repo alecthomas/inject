@@ -6,11 +6,11 @@ import (
 	"sync"
 )
 
-// An Annotation modifies how a type is built and retrieved from the Injector.
+// An Annotation modifies how a type is built and retrieved from the SafeInjector.
 type Annotation interface {
 	// Build returns the type associated with the value being bound, and a function that builds that
 	// value at runtime.
-	Build(*Injector) (*Binding, error)
+	Build(*SafeInjector) (*Binding, error)
 	// Is checks if the annotation or any children are of the given annotation type.
 	Is(annotation Annotation) bool
 }
@@ -46,7 +46,7 @@ func (l *literalAnnotation) String() string {
 	return fmt.Sprintf("%v", l.v)
 }
 
-func (l *literalAnnotation) Build(*Injector) (*Binding, error) {
+func (l *literalAnnotation) Build(*SafeInjector) (*Binding, error) {
 	return &Binding{
 		Provides: reflect.TypeOf(l.v),
 		Build:    func() (interface{}, error) { return l.v, nil },
@@ -67,7 +67,7 @@ func Provider(v interface{}) Annotation {
 	return &providerType{v}
 }
 
-func (p *providerType) Build(i *Injector) (*Binding, error) {
+func (p *providerType) Build(i *SafeInjector) (*Binding, error) {
 	f := reflect.ValueOf(p.v)
 	ft := f.Type()
 	if ft.Kind() != reflect.Func {
@@ -87,7 +87,7 @@ func (p *providerType) Build(i *Injector) (*Binding, error) {
 			Provides: rt,
 			Requires: inputs,
 			Build: func() (interface{}, error) {
-				rv, err := i.SafeCall(p.v)
+				rv, err := i.Call(p.v)
 				if err != nil {
 					return nil, err
 				}
@@ -102,7 +102,7 @@ func (p *providerType) Build(i *Injector) (*Binding, error) {
 			Provides: rt,
 			Requires: inputs,
 			Build: func() (interface{}, error) {
-				rv, err := i.SafeCall(p.v)
+				rv, err := i.Call(p.v)
 				if err != nil {
 					return nil, err
 				}
@@ -140,7 +140,7 @@ type singletonType struct {
 	v interface{}
 }
 
-func (s *singletonType) Build(i *Injector) (*Binding, error) {
+func (s *singletonType) Build(i *SafeInjector) (*Binding, error) {
 	next := Annotate(s.v)
 	if !next.Is(&providerType{}) {
 		return &Binding{}, fmt.Errorf("only providers can be singletons")
@@ -191,7 +191,7 @@ type sequenceType struct {
 	v interface{}
 }
 
-func (s *sequenceType) Build(i *Injector) (*Binding, error) {
+func (s *sequenceType) Build(i *SafeInjector) (*Binding, error) {
 	binding, err := Annotate(s.v).Build(i)
 	if err != nil {
 		return &Binding{}, err
@@ -244,7 +244,7 @@ func Mapping(v interface{}) Annotation {
 	return &mappingType{v}
 }
 
-func (m *mappingType) Build(i *Injector) (*Binding, error) {
+func (m *mappingType) Build(i *SafeInjector) (*Binding, error) {
 	binding, err := Annotate(m.v).Build(i)
 	if err != nil {
 		return &Binding{}, err
