@@ -31,8 +31,8 @@ func SafeNew() *SafeInjector {
 	return i
 }
 
-// Install is like Install except it returns an error rather than panicking.
-func (i *SafeInjector) Install(modules ...interface{}) (err error) {
+// Install installs a module. See Injector.Install() for details.
+func (i *SafeInjector) Install(modules ...interface{}) (err error) { // nolint: gocyclo
 	// Capture panics and return them as errors.
 	defer func() {
 		if e := recover(); e != nil {
@@ -63,11 +63,12 @@ func (i *SafeInjector) Install(modules ...interface{}) (err error) {
 			methodType := mt.Method(j)
 			if strings.HasPrefix(methodType.Name, "Provide") {
 				provider := Provider(method.Interface())
-				if strings.Contains(methodType.Name, "Mapping") {
+				switch {
+				case strings.Contains(methodType.Name, "Mapping"):
 					provider = Mapping(provider)
-				} else if strings.Contains(methodType.Name, "Sequence") {
+				case strings.Contains(methodType.Name, "Sequence"):
 					provider = Sequence(provider)
-				} else if !strings.Contains(methodType.Name, "Multi") {
+				case !strings.Contains(methodType.Name, "Multi"):
 					provider = Singleton(provider)
 				}
 				if err := i.Bind(provider); err != nil {
@@ -93,7 +94,7 @@ func (i *SafeInjector) handleDuplicate(existing reflect.Value, incoming reflect.
 	return fmt.Errorf("duplicate unequal module: %#v != %#v", incoming.Interface(), existing.Interface())
 }
 
-// Bind binds a value to the injector.
+// Bind binds a value to the injector. See Injector.Bind() for details.
 func (i *SafeInjector) Bind(things ...interface{}) error {
 	for _, v := range things {
 		annotation := Annotate(v)
@@ -111,7 +112,7 @@ func (i *SafeInjector) Bind(things ...interface{}) error {
 	return nil
 }
 
-// BindTo is like BindTo except it returns an error rather than panicking.
+// BindTo binds an implementation to an interface. See Injector.BindTo() for details.
 func (i *SafeInjector) BindTo(as interface{}, impl interface{}) error {
 	ift := reflect.TypeOf(as)
 	binding, err := Annotate(impl).Build(i)

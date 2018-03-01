@@ -258,5 +258,5 @@ func (m *MyModule) ProvideMultiRandomness() Randomness { return Randomness(rand.
 Finally, after binding all of your types to the injector you can validate that
 a function is constructible via the Injector by calling `Validate(f)`.
 
-Or you can live on the edge and simply use `Call(f)` which will return an
-error if injection is not possible.
+Or you can live on the edge and simply use `Call(f)` which will panic if
+injection is not possible.

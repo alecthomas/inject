@@ -69,7 +69,8 @@ func (i *Injector) Install(modules ...interface{}) Binder {
 	return i
 }
 
-// Bind binds a value to the injector. Panics on error.
+// Bind binds a value to the injector. Panics on error. See the README
+// (https://github.com/alecthomas/inject/blob/master/README.md) for more details.
 func (i *Injector) Bind(things ...interface{}) Binder {
 	if err := i.safe.Bind(things...); err != nil {
 		panic(err)
