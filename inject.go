@@ -20,6 +20,8 @@ type Binder interface {
 	Install(module ...interface{}) Binder
 }
 
+var _ Binder = &Injector{}
+
 // A Module implementing this interface will have its Configure() method called at Install() time.
 type Module interface {
 	Configure(binder Binder) error

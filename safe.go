@@ -17,6 +17,14 @@ type SafeInjector struct {
 	modules      map[reflect.Type]reflect.Value
 }
 
+type SafeBinder interface {
+	Bind(things ...interface{}) error
+	BindTo(to interface{}, impl interface{}) error
+	Install(module ...interface{}) error
+}
+
+var _ SafeBinder = &SafeInjector{}
+
 // SafeNew creates a new SafeInjector.
 //
 // The injector itself is already bound, as is an implementation of the Binder interface.
