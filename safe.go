@@ -31,6 +31,10 @@ func SafeNew() *SafeInjector {
 	return i
 }
 
+func (s *SafeInjector) Unsafe() *Injector {
+	return &Injector{safe: s}
+}
+
 // Install installs a module. See Injector.Install() for details.
 func (i *SafeInjector) Install(modules ...interface{}) (err error) { // nolint: gocyclo
 	// Capture panics and return them as errors.
