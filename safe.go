@@ -29,14 +29,14 @@ var _ SafeBinder = &SafeInjector{}
 //
 // The injector itself is already bound, as is an implementation of the Binder interface.
 func SafeNew() *SafeInjector {
-	i := &SafeInjector{
+	s := &SafeInjector{
 		bindings: map[reflect.Type]*Binding{},
 		stack:    map[reflect.Type]bool{},
 		modules:  map[reflect.Type]reflect.Value{},
 	}
-	i.Bind(i)
-	i.BindTo((*Binder)(nil), i)
-	return i
+	s.Bind(s)
+	s.BindTo((*SafeBinder)(nil), s)
+	return s
 }
 
 func (s *SafeInjector) Unsafe() *Injector {
@@ -44,7 +44,7 @@ func (s *SafeInjector) Unsafe() *Injector {
 }
 
 // Install installs a module. See Injector.Install() for details.
-func (i *SafeInjector) Install(modules ...interface{}) (err error) { // nolint: gocyclo
+func (s *SafeInjector) Install(modules ...interface{}) (err error) { // nolint: gocyclo
 	// Capture panics and return them as errors.
 	defer func() {
 		if e := recover(); e != nil {
@@ -55,17 +55,17 @@ func (i *SafeInjector) Install(modules ...interface{}) (err error) { // nolint: 
 		m := reflect.ValueOf(module)
 		im := reflect.Indirect(m)
 		// Duplicate module?
-		if existing, ok := i.modules[im.Type()]; ok {
-			return i.handleDuplicate(existing.Addr(), m)
+		if existing, ok := s.modules[im.Type()]; ok {
+			return s.handleDuplicate(existing.Addr(), m)
 		}
 		if module, ok := module.(Module); ok {
 			// Unsafe panics are captured by the enclosing defer().
-			unsafe := &Injector{safe: i}
+			unsafe := &Injector{safe: s}
 			if err := module.Configure(unsafe); err != nil {
 				return err
 			}
 		}
-		i.modules[im.Type()] = im
+		s.modules[im.Type()] = im
 		if reflect.Indirect(m).Kind() != reflect.Struct {
 			return fmt.Errorf("only structs may be used as modules but got %s", m.Type())
 		}
@@ -83,7 +83,7 @@ func (i *SafeInjector) Install(modules ...interface{}) (err error) { // nolint: 
 				case !strings.Contains(methodType.Name, "Multi"):
 					provider = Singleton(provider)
 				}
-				if err := i.Bind(provider); err != nil {
+				if err := s.Bind(provider); err != nil {
 					return err
 				}
 			}
@@ -92,7 +92,7 @@ func (i *SafeInjector) Install(modules ...interface{}) (err error) { // nolint: 
 	return nil
 }
 
-func (i *SafeInjector) handleDuplicate(existing reflect.Value, incoming reflect.Value) error {
+func (s *SafeInjector) handleDuplicate(existing reflect.Value, incoming reflect.Value) error {
 	if reflect.DeepEqual(incoming.Interface(), existing.Interface()) {
 		return nil
 	}
@@ -107,31 +107,31 @@ func (i *SafeInjector) handleDuplicate(existing reflect.Value, incoming reflect.
 }
 
 // Bind binds a value to the injector. See Injector.Bind() for details.
-func (i *SafeInjector) Bind(things ...interface{}) error {
+func (s *SafeInjector) Bind(things ...interface{}) error {
 	for _, v := range things {
 		annotation := Annotate(v)
-		binding, err := annotation.Build(i)
+		binding, err := annotation.Build(s)
 		if err != nil {
 			return err
 		}
-		if _, ok := i.bindings[binding.Provides]; ok && !(annotation.Is(&sequenceType{}) ||
+		if _, ok := s.bindings[binding.Provides]; ok && !(annotation.Is(&sequenceType{}) ||
 			annotation.Is(&mappingType{})) {
 			return fmt.Errorf("%s is already bound", binding.Provides)
 		}
-		i.bindings[binding.Provides] = binding
-		i.bindingOrder = append(i.bindingOrder, binding.Provides)
+		s.bindings[binding.Provides] = binding
+		s.bindingOrder = append(s.bindingOrder, binding.Provides)
 	}
 	return nil
 }
 
 // BindTo binds an implementation to an interface. See Injector.BindTo() for details.
-func (i *SafeInjector) BindTo(as interface{}, impl interface{}) error {
+func (s *SafeInjector) BindTo(as interface{}, impl interface{}) error {
 	ift := reflect.TypeOf(as)
-	binding, err := Annotate(impl).Build(i)
+	binding, err := Annotate(impl).Build(s)
 	if err != nil {
 		return err
 	}
-	if _, ok := i.bindings[ift]; ok {
+	if _, ok := s.bindings[ift]; ok {
 		return fmt.Errorf("%s is already bound", ift)
 	}
 	// Pointer to an interface...
@@ -140,9 +140,9 @@ func (i *SafeInjector) BindTo(as interface{}, impl interface{}) error {
 		if !binding.Provides.Implements(ift) {
 			return fmt.Errorf("implementation %s does not implement interface %s", binding.Provides, ift)
 		}
-		i.bindings[ift] = binding
+		s.bindings[ift] = binding
 	} else if binding.Provides.ConvertibleTo(ift) {
-		i.bindings[ift] = &Binding{
+		s.bindings[ift] = &Binding{
 			Provides: binding.Provides,
 			Requires: binding.Requires,
 			Build: func() (interface{}, error) {
@@ -156,15 +156,15 @@ func (i *SafeInjector) BindTo(as interface{}, impl interface{}) error {
 	} else {
 		return fmt.Errorf("implementation %s can not be converted to %s", binding.Provides, ift)
 	}
-	i.bindingOrder = append(i.bindingOrder, ift)
+	s.bindingOrder = append(s.bindingOrder, ift)
 	return nil
 }
 
-func (i *SafeInjector) resolveSlice(t reflect.Type) (*Binding, error) {
+func (s *SafeInjector) resolveSlice(t reflect.Type) (*Binding, error) {
 	et := t.Elem()
 	bindings := []*Binding{}
-	for _, bt := range i.bindingOrder {
-		binding := i.bindings[bt]
+	for _, bt := range s.bindingOrder {
+		binding := s.bindings[bt]
 		if bt.Kind() == reflect.Slice && bt.Elem().Implements(et) {
 			bindings = append(bindings, binding)
 		}
@@ -184,8 +184,8 @@ func (i *SafeInjector) resolveSlice(t reflect.Type) (*Binding, error) {
 					return nil, err
 				}
 				foutv := reflect.ValueOf(fout)
-				for i := 0; i < foutv.Len(); i++ {
-					out = reflect.Append(out, foutv.Index(i))
+				for s := 0; s < foutv.Len(); s++ {
+					out = reflect.Append(out, foutv.Index(s))
 				}
 			}
 			return out.Interface(), nil
@@ -193,11 +193,11 @@ func (i *SafeInjector) resolveSlice(t reflect.Type) (*Binding, error) {
 	}, nil
 }
 
-func (i *SafeInjector) resolveMapping(t reflect.Type) (*Binding, error) {
+func (s *SafeInjector) resolveMapping(t reflect.Type) (*Binding, error) {
 	et := t.Elem()
 	bindings := []*Binding{}
-	for _, bt := range i.bindingOrder {
-		binding := i.bindings[bt]
+	for _, bt := range s.bindingOrder {
+		binding := s.bindings[bt]
 		if bt.Kind() == reflect.Map && bt.Key() == t.Key() && bt.Elem().Implements(et) {
 			bindings = append(bindings, binding)
 		}
@@ -226,13 +226,13 @@ func (i *SafeInjector) resolveMapping(t reflect.Type) (*Binding, error) {
 	}, nil
 }
 
-func (i *SafeInjector) resolve(t reflect.Type) (*Binding, error) {
-	if binding, ok := i.bindings[t]; ok {
+func (s *SafeInjector) resolve(t reflect.Type) (*Binding, error) {
+	if binding, ok := s.bindings[t]; ok {
 		return binding, nil
 	}
 	// If type is an interface attempt to find type that conforms to the interface.
 	if t.Kind() == reflect.Interface {
-		for bt, binding := range i.bindings {
+		for bt, binding := range s.bindings {
 			if bt.Implements(t) {
 				return binding, nil
 			}
@@ -241,16 +241,16 @@ func (i *SafeInjector) resolve(t reflect.Type) (*Binding, error) {
 	// If type is a slice of interfaces, attempt to find providers that provide slices
 	// of types that implement that interface.
 	if t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Interface {
-		return i.resolveSlice(t)
+		return s.resolveSlice(t)
 	}
 	// If type is a map of interface values, attempt to find providers that provide maps of values
 	// that implement that interface. Keys must match.
 	if t.Kind() == reflect.Map && t.Elem().Kind() == reflect.Interface {
-		return i.resolveMapping(t)
+		return s.resolveMapping(t)
 	}
 
-	if i.parent != nil {
-		return i.parent.resolve(t)
+	if s.parent != nil {
+		return s.parent.resolve(t)
 	}
 	return &Binding{}, fmt.Errorf("unbound type %s", t.String())
 }
@@ -258,26 +258,26 @@ func (i *SafeInjector) resolve(t reflect.Type) (*Binding, error) {
 // Get acquires a value of type t from the injector.
 //
 // It is usually preferable to use Call().
-func (i *SafeInjector) Get(t reflect.Type) (interface{}, error) {
-	binding, err := i.resolve(t)
+func (s *SafeInjector) Get(t reflect.Type) (interface{}, error) {
+	binding, err := s.resolve(t)
 	if err != nil {
 		return nil, err
 	}
 	// Detect recursive bindings.
-	if i.stack[binding.Provides] {
+	if s.stack[binding.Provides] {
 		return nil, fmt.Errorf("recursive binding")
 	}
-	i.stack[binding.Provides] = true
-	defer func() { delete(i.stack, binding.Provides) }()
+	s.stack[binding.Provides] = true
+	defer func() { delete(s.stack, binding.Provides) }()
 	return binding.Build()
 }
 
 // Call f, injecting any arguments.
-func (i *SafeInjector) Call(f interface{}) ([]interface{}, error) {
+func (s *SafeInjector) Call(f interface{}) ([]interface{}, error) {
 	ft := reflect.TypeOf(f)
 	args := []reflect.Value{}
 	for ai := 0; ai < ft.NumIn(); ai++ {
-		a, err := i.Get(ft.In(ai))
+		a, err := s.Get(ft.In(ai))
 		if err != nil {
 			return nil, fmt.Errorf("couldn't inject argument %d of %s: %s", ai+1, ft, err)
 		}
@@ -298,22 +298,22 @@ func (i *SafeInjector) Call(f interface{}) ([]interface{}, error) {
 // Child creates a child SafeInjector whose bindings overlay those of the parent.
 //
 // The parent will never be modified by the child.
-func (i *SafeInjector) Child() *SafeInjector {
+func (s *SafeInjector) Child() *SafeInjector {
 	c := SafeNew()
-	c.parent = i
+	c.parent = s
 	return c
 }
 
 // Validate that the function f can be called by the injector.
-func (i *SafeInjector) Validate(f interface{}) error {
+func (s *SafeInjector) Validate(f interface{}) error {
 	ft := reflect.TypeOf(f)
 	if ft.Kind() != reflect.Func {
 		return fmt.Errorf("expected a function but received %s", ft)
 	}
 	// First, check that all existing bindings are satisfiable.
-	for _, binding := range i.bindings {
+	for _, binding := range s.bindings {
 		for _, req := range binding.Requires {
-			if _, err := i.resolve(req); err != nil {
+			if _, err := s.resolve(req); err != nil {
 				return fmt.Errorf("no binding for %s required by %s: %s", req, binding.Provides, err)
 			}
 		}
@@ -321,7 +321,7 @@ func (i *SafeInjector) Validate(f interface{}) error {
 	// Next, check the function arguments are satisfiable.
 	for j := 0; j < ft.NumIn(); j++ {
 		at := ft.In(j)
-		if _, err := i.resolve(at); err != nil {
+		if _, err := s.resolve(at); err != nil {
 			return fmt.Errorf("couldn't satisfy argument %d of %s: %s", j, ft, err)
 		}
 	}

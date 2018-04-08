@@ -38,7 +38,10 @@ type Injector struct {
 //
 // The injector itself is already bound, as is an implementation of the Binder interface.
 func New() *Injector {
-	return &Injector{safe: SafeNew()}
+	i := &Injector{safe: SafeNew()}
+	i.Bind(i)
+	i.BindTo((*Binder)(nil), i)
+	return i
 }
 
 // Install a module. A module is a struct whose methods are providers. This is useful for grouping
