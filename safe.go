@@ -258,7 +258,14 @@ func (s *SafeInjector) resolve(t reflect.Type) (*Binding, error) {
 // Get acquires a value of type t from the injector.
 //
 // It is usually preferable to use Call().
-func (s *SafeInjector) Get(t reflect.Type) (interface{}, error) {
+func (s *SafeInjector) Get(t interface{}) (interface{}, error) {
+	return s.getReflected(reflect.TypeOf(t))
+}
+
+func (s *SafeInjector) getReflected(t reflect.Type) (interface{}, error) {
+	if t.Kind() == reflect.Ptr && t.Elem().Kind() == reflect.Interface {
+		t = t.Elem()
+	}
 	binding, err := s.resolve(t)
 	if err != nil {
 		return nil, err
@@ -277,7 +284,7 @@ func (s *SafeInjector) Call(f interface{}) ([]interface{}, error) {
 	ft := reflect.TypeOf(f)
 	args := []reflect.Value{}
 	for ai := 0; ai < ft.NumIn(); ai++ {
-		a, err := s.Get(ft.In(ai))
+		a, err := s.getReflected(ft.In(ai))
 		if err != nil {
 			return nil, fmt.Errorf("couldn't inject argument %d of %s: %s", ai+1, ft, err)
 		}
